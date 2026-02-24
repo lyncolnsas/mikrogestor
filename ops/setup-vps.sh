@@ -112,6 +112,8 @@ echo "Gerando certificado SSL gratuito com Certbot para $DOMAIN e $WWW_DOMAIN...
 certbot --nginx -d $DOMAIN -d $WWW_DOMAIN --non-interactive --agree-tos -m contato@$DOMAIN || echo -e "\e[31mErro no Certbot. Verifique se o IP já está apontado no Registro BR / Cloudflare.\e[0m"
 
 echo -e "\n\e[32m[8/8] Subindo Aplicação com Docker Compose...\e[0m"
+docker network prune -f
+docker compose -f docker-compose.prod.yml down --remove-orphans
 docker compose -f docker-compose.prod.yml up -d --build
 
 echo -e "\n================================================================="
