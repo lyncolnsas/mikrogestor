@@ -112,9 +112,19 @@ echo "Gerando certificado SSL gratuito com Certbot para $DOMAIN e $WWW_DOMAIN...
 certbot --nginx -d $DOMAIN -d $WWW_DOMAIN --non-interactive --agree-tos -m contato@$DOMAIN || echo -e "\e[31mErro no Certbot. Verifique se o IP já está apontado no Registro BR / Cloudflare.\e[0m"
 
 echo -e "\n\e[32m[8/8] Subindo Aplicação com Docker Compose...\e[0m"
-docker network prune -f
-docker compose -f docker-compose.prod.yml down --remove-orphans
-docker compose -f docker-compose.prod.yml up -d --build
+echo -e "\n\e[32m[8/8] Subindo Aplicação com Docker Compose...\e[0m"
+# Resolve qual versão do compose existe na máquina atual
+if command -v docker-compose &> /dev/null; then
+    DOCKER_CMD="docker-compose"
+else
+    DOCKER_CMD="docker compose"
+fi
+
+$DOCKER_CMD -f docker-compose.prod.yml down --remove-orphans || true
+docker network prune -f || true
+docker system prune -f || true
+
+$DOCKER_CMD -f docker-compose.prod.yml up -d --build
 
 echo -e "\n================================================================="
 echo -e "\e[32mTUDO PRONTO! O Mikrogestor foi instalado e iniciado.\e[0m"
