@@ -1,0 +1,21 @@
+Dockerfile
+.dockerignore
+.git
+.next
+.env
+.env*.local
+
+# Dependencies
+node_modules
+npm-debug.log
+build_output.log
+lint_report.txt
+
+# Database and Storage
+data/
+storage/
+config/wireguard/
+docker/wireguard/
+.agent/
+brain/
+logs/

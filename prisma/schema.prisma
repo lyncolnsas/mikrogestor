@@ -1,0 +1,696 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  
+}
+
+// --------------------------------------------------------
+// RADIUS SCHEMA (Network Integration)
+// --------------------------------------------------------
+
+model RadCheck {
+  id        Int    @id @default(autoincrement())
+  username  String
+  attribute String
+  op        String @default(":=") // FreeRADIUS default
+  value     String
+
+  @@index([username, attribute])
+  @@map("radcheck")
+}
+
+model RadReply {
+  id        Int    @id @default(autoincrement())
+  username  String
+  attribute String
+  op        String @default("=") // FreeRADIUS default
+  value     String
+
+  @@index([username])
+  @@map("radreply")
+}
+
+model RadAcct {
+  radacctid          BigInt    @id @default(autoincrement())
+  acctsessionid      String
+  acctuniqueid       String    @unique
+  username           String    @default("")
+  groupname          String    @default("")
+  realm              String?   @default("")
+  nasipaddress       String    @map("nasipaddress")
+  nasportid          String?
+  nasporttype        String?
+  acctstarttime      DateTime?
+  acctupdatetime     DateTime?
+  acctstoptime       DateTime?
+  acctinterval       Int?
+  acctsessiontime    Int?
+  acctauthentic      String?
+  connectinfo_start  String?
+  connectinfo_stop   String?
+  acctinputoctets    BigInt?
+  acctoutputoctets   BigInt?
+  calledstationid    String    @default("")
+  callingstationid   String    @default("")
+  acctterminatecause String    @default("")
+  servicetype        String?
+  framedprotocol     String?
+  framedipaddress    String?
+
+  // Note: Partitioning will be handled in raw SQL migration
+  @@index([username])
+  @@index([acctstarttime])
+  @@map("radacct")
+}
+
+model Nas {
+  id          Int     @id @default(autoincrement())
+  nasname     String  @unique // VPN IP
+  shortname   String?
+  type        String  @default("other")
+  ports       Int?
+  secret      String
+  server      String?
+  community   String?
+  description String?
+
+  apiUser     String? @default("admin") @map("api_user")
+  apiPassword String? @map("api_password")
+  apiPort     Int?    @default(8728) @map("api_port")
+
+  tenantId String? @map("tenant_id")
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("nas")
+}
+
+// --------------------------------------------------------
+// MANAGEMENT SCHEMA (Shared / System)
+// --------------------------------------------------------
+
+model Tenant {
+  id         String  @id @default(uuid())
+  name       String
+  slug       String  @unique
+  publicKey  String? @map("public_key")
+  privateKey String? @map("private_key") // Encrypted
+
+  // SaaS Ops Fields
+  status      TenantStatus @default(ACTIVE)
+  blockReason String?      @map("block_reason")
+
+  // Asaas Management
+  asaasCustomerId String? @map("asaas_customer_id")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users             User[]
+  vpnTunnels        VpnTunnel[]
+  nas               Nas[]
+  subscription      Subscription?
+  invoices          SaasInvoice[]
+  landingConfig     LandingConfig?
+  sentNotifications TenantNotification[]
+  provisioningLogs  TenantProvisioningLog[]
+
+  @@index([asaasCustomerId])
+  @@map("tenants")
+}
+
+model LandingConfig {
+  id       String @id @default(uuid())
+  tenantId String @unique @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  title           String? @default("Nossa Internet")
+  subtitle        String? @default("A melhor conexão para você e sua família.")
+  heroDescription String? @map("hero_description")
+
+  primaryColor   String @default("#2563eb") @map("primary_color")
+  secondaryColor String @default("#10b981") @map("secondary_color")
+
+  logoUrl    String?  @map("logo_url")
+  bannerUrl  String?  @map("banner_url")
+  bannerUrls String[] @default([]) @map("banner_urls")
+
+  whatsapp String?
+  address  String?
+
+  // Feature Visibility Toggles
+  showCoverageChecker Boolean @default(true) @map("show_coverage_checker")
+  showTestimonials    Boolean @default(true) @map("show_testimonials")
+  showFAQ             Boolean @default(true) @map("show_faq")
+  showFloatingCTA     Boolean @default(true) @map("show_floating_cta")
+
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  testimonials Testimonial[]
+  faqs         FAQ[]
+
+  @@map("tenant_landing_configs")
+}
+
+model Testimonial {
+  id              String        @id @default(uuid())
+  landingConfigId String        @map("landing_config_id")
+  landingConfig   LandingConfig @relation(fields: [landingConfigId], references: [id], onDelete: Cascade)
+
+  customerName String  @map("customer_name")
+  customerRole String? @map("customer_role") // Ex: "Empresário", "Estudante"
+  content      String
+  rating       Int     @default(5) // 1-5 stars
+  avatarUrl    String? @map("avatar_url")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("testimonials")
+}
+
+model FAQ {
+  id              String        @id @default(uuid())
+  landingConfigId String        @map("landing_config_id")
+  landingConfig   LandingConfig @relation(fields: [landingConfigId], references: [id], onDelete: Cascade)
+
+  question String
+  answer   String @db.Text
+  order    Int    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("faqs")
+}
+
+enum TenantStatus {
+  PROVISIONING
+  ACTIVE
+  BLOCKED
+  CANCELLED
+}
+
+model SaasPlan {
+  id                String         @id @default(uuid())
+  name              String
+  maxCustomers      Int            @map("max_customers")
+  vpnLimit          Int            @default(1) @map("vpn_limit")
+  monthlyPrice      Decimal        @map("monthly_price") @db.Decimal(10, 2)
+  features          Json?
+  isActive          Boolean        @default(true) @map("is_active")
+  showOnLanding     Boolean        @default(true) @map("show_on_landing")
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  subscriptions     Subscription[]
+  pendingDowngrades Subscription[] @relation("DowngradeTarget")
+
+  @@map("saas_plans")
+}
+
+model Subscription {
+  id                    String             @id @default(uuid())
+  tenantId              String             @unique @map("tenant_id")
+  tenant                Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  planId                String             @map("plan_id")
+  plan                  SaasPlan           @relation(fields: [planId], references: [id])
+  status                SubscriptionStatus @default(TRIAL)
+  currentPeriodStart    DateTime           @default(now()) @map("current_period_start")
+  currentPeriodEnd      DateTime           @map("current_period_end")
+  gatewaySubscriptionId String?            @map("gateway_subscription_id")
+
+  // VPN Downgrade Scheduling
+  downgradeScheduledAt  DateTime? @map("downgrade_scheduled_at")
+  downgradeTargetPlanId String?   @map("downgrade_target_plan_id")
+  downgradeTargetPlan   SaasPlan? @relation("DowngradeTarget", fields: [downgradeTargetPlanId], references: [id])
+
+  invoices  SaasInvoice[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@map("saas_subscriptions")
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+model SaasAuditLog {
+  id             String   @id @default(uuid())
+  adminUserId    String   @map("admin_user_id")
+  targetTenantId String?  @map("target_tenant_id")
+  action         String
+  details        Json?
+  ipAddress      String?  @map("ip_address")
+  userAgent      String?  @map("user_agent")
+  createdAt      DateTime @default(now())
+
+  @@map("saas_audit_logs")
+}
+
+enum ProvisioningStatus {
+  STARTED
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+model TenantProvisioningLog {
+  id        String             @id @default(uuid())
+  tenantId  String             @map("tenant_id")
+  tenant    Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  status    ProvisioningStatus @default(STARTED)
+  step      String
+  details   String?            @db.Text
+  createdAt DateTime           @default(now())
+
+  @@index([tenantId])
+  @@map("tenant_provisioning_logs")
+}
+
+model SaasInvoice {
+  id             String       @id @default(uuid())
+  tenantId       String       @map("tenant_id")
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriptionId String       @map("subscription_id")
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  amount  Decimal           @db.Decimal(10, 2)
+  dueDate DateTime          @map("due_date")
+  status  SaasInvoiceStatus @default(PENDING)
+
+  // Gateway specific
+  gatewayId  String? @map("gateway_id")
+  paymentUrl String? @map("payment_url")
+  pixQrCode  String? @map("pix_qrcode")
+
+  paidAt    DateTime? @map("paid_at")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@map("saas_invoices")
+}
+
+enum SaasInvoiceStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+model User {
+  id                String                 @id @default(uuid())
+  email             String                 @unique
+  name              String?
+  role              UserRole               @default(ISP_ADMIN)
+  password          String // Hash
+  tenantId          String?
+  tenant            Tenant?                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  serviceOrders     ServiceOrder[]
+  notificationReads SaasNotificationRead[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ISP_ADMIN
+  TECHNICIAN
+}
+
+model VpnServer {
+  id             String           @id @default(uuid())
+  name           String
+  publicEndpoint String           @map("public_endpoint")
+  listenPort     Int              @map("listen_port")
+  publicKey      String           @map("public_key")
+  privateKey     String?          @map("server_private_key")
+
+  capacityLimit  Int              @map("capacity_limit")
+
+  currentLoad    Int              @default(0) @map("current_load")
+  secret         String           @default(uuid())
+  isActive       Boolean          @default(true) @map("is_active")
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  tunnels        VpnTunnel[]
+  stats          VpnServerStats[]
+
+  @@map("vpn_servers")
+}
+
+enum VpnDeviceType {
+  ROUTER
+  MIKROTIK
+  MOBILE
+  PC
+}
+
+model VpnTunnel {
+  id       String @id @default(uuid())
+  tenantId String? @map("tenant_id")
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Identification
+  name String        @default("Router Principal")
+  type VpnDeviceType @default(ROUTER)
+
+  serverId         String    @map("server_id")
+  server           VpnServer @relation(fields: [serverId], references: [id])
+  routerIdentity   String?   @map("router_identity")
+  internalIp       String    @map("internal_ip")
+  subnetCidr       String    @default("32") @map("subnet_cidr")
+  clientPublicKey  String    @map("client_public_key")
+  clientPrivateKey String    @map("client_private_key")
+  presharedKey     String?   @map("preshared_key")
+  isActive         Boolean   @default(true) @map("is_active")
+  lastHandshake    DateTime? @map("last_handshake")
+
+  // Monitoring Fields
+  totalBytesRx BigInt  @default(0) @map("total_bytes_rx")
+  totalBytesTx BigInt  @default(0) @map("total_bytes_tx")
+  quotaBytes   BigInt? @map("quota_bytes") // Optional limit
+
+  configScript String? @map("config_script")
+
+  // Sync tracking for endpoint changes
+  needsSync    Boolean   @default(false) @map("needs_sync")
+  lastSyncedAt DateTime? @map("last_synced_at")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  trafficLogs VpnTrafficLog[]
+
+  // Rule 4: Constraints
+  @@unique([serverId, internalIp]) // Unique IP per Server
+  @@map("vpn_tunnels")
+}
+
+model VpnServerStats {
+  id       String    @id @default(uuid())
+  serverId String    @map("server_id")
+  server   VpnServer @relation(fields: [serverId], references: [id])
+
+  cpuUsage    Float  @map("cpu_usage") // Percentage 0-100
+  memoryTotal BigInt @map("memory_total") // Bytes
+  memoryUsed  BigInt @map("memory_used")
+  diskTotal   BigInt @map("disk_total") // Bytes
+  diskUsed    BigInt @map("disk_used")
+
+  measuredAt DateTime @default(now()) @map("measured_at")
+
+  @@index([serverId, measuredAt])
+  @@map("vpn_server_stats")
+}
+
+model VpnTrafficLog {
+  id       String    @id @default(uuid())
+  tunnelId String    @map("tunnel_id")
+  tunnel   VpnTunnel @relation(fields: [tunnelId], references: [id], onDelete: Cascade)
+
+  bytesRx BigInt @map("bytes_rx") // Download
+  bytesTx BigInt @map("bytes_tx") // Upload
+
+  measuredAt DateTime @default(now()) @map("measured_at")
+
+  @@index([tunnelId, measuredAt])
+  @@map("vpn_traffic_logs")
+}
+
+// --------------------------------------------------------
+// TENANT TEMPLATE SCHEMA (Cloned for each Tenant)
+// --------------------------------------------------------
+
+model Customer {
+  id      String         @id @default(uuid())
+  name    String
+  cpfCnpj String         @unique @map("cpf_cnpj") // Rule: Unique per tenant
+  phone   String?
+  address Json? // Rule: Flexible structure
+  status  CustomerStatus @default(ACTIVE)
+
+  planId String? @map("plan_id")
+  plan   Plan?   @relation(fields: [planId], references: [id])
+
+  radiusPassword String? @map("radius_password")
+  email          String? @unique
+
+  // Asaas Management
+  asaasCustomerId String? @map("asaas_customer_id")
+
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  invoices      Invoice[]
+  serviceOrders ServiceOrder[]
+  adjustments   FinancialAdjustment[]
+
+  // Rule: Performance Index for fuzzy search (Rule 1)
+  // Note: pg_trgm requires extension to be enabled in DB.
+  @@index([name])
+  @@map("customers")
+}
+
+model Plan {
+  id            String  @id @default(uuid())
+  name          String
+  price         Decimal @db.Decimal(10, 2)
+  upload        Int // in Mbps
+  download      Int // in Mbps
+  description   String?
+  isActive      Boolean @default(true) @map("is_active")
+  showOnLanding Boolean @default(false) @map("show_on_landing")
+
+  // Value-Added Services (SVAs)
+  svaList String? @map("sva_list") // JSON array: ["Netflix", "Wi-Fi 6"]
+
+  // PPPoE Attributes
+  remoteIpPool String? @map("remote_ip_pool")
+  localAddress String? @map("local_address")
+  dnsPrimary   String? @map("dns_primary")
+  dnsSecondary String? @map("dns_secondary")
+
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  customers Customer[]
+
+  @@map("plans")
+}
+
+enum CustomerStatus {
+  ACTIVE
+  BLOCKED
+  CANCELLED
+}
+
+model Invoice {
+  id         String        @id @default(uuid())
+  customerId String        @map("customer_id")
+  customer   Customer      @relation(fields: [customerId], references: [id])
+  status     InvoiceStatus @default(DRAFT)
+  total      Decimal       @db.Decimal(10, 2)
+  dueDate    DateTime      @map("due_date")
+  paidAt     DateTime?     @map("paid_at")
+  paymentId  String?       @map("payment_id") // ID from Gateway (Asaas/MP)
+
+  // Asaas specific fields
+  pixQrCode   String? @map("pix_qrcode")
+  paymentUrl  String? @map("payment_url")
+  billingType String? @map("billing_type")
+
+  items     InvoiceItem[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  // Rule: Index for dashboard lookups (Rule 1)
+  @@index([customerId, status])
+  @@map("invoices")
+}
+
+enum InvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+model InvoiceItem {
+  id          String  @id @default(uuid())
+  invoiceId   String  @map("invoice_id")
+  invoice     Invoice @relation(fields: [invoiceId], references: [id])
+  description String
+  amount      Decimal @db.Decimal(10, 2)
+  quantity    Int     @default(1)
+
+  @@map("invoice_items")
+}
+
+model FinancialConfig {
+  id                 String   @id @default(uuid())
+  gatewayCredentials Json?    @map("gateway_credentials")
+  interestRate       Decimal  @map("interest_rate") @db.Decimal(5, 2)
+  penaltyAmount      Decimal  @default(0.00) @map("penalty_amount") @db.Decimal(10, 2)
+  gracePeriod        Int      @default(5) @map("grace_period")
+  autoBlock          Boolean  @default(true) @map("auto_block")
+  autoUnblock        Boolean  @default(true) @map("auto_unblock")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("financial_configs")
+}
+
+model FinancialAdjustment {
+  id          String         @id @default(uuid())
+  customerId  String         @map("customer_id")
+  customer    Customer       @relation(fields: [customerId], references: [id])
+  type        AdjustmentType
+  amount      Decimal        @db.Decimal(10, 2)
+  description String?
+  isApplied   Boolean        @default(false) @map("is_applied")
+  appliedAt   DateTime?      @map("applied_at")
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@map("financial_adjustments")
+}
+
+enum AdjustmentType {
+  INTEREST
+  PENALTY
+  CREDIT
+  DEBIT
+}
+
+model ServiceOrder {
+  id         String              @id @default(uuid())
+  type       SystemOrderType
+  status     SystemOrderStatus   @default(PENDING)
+  priority   SystemOrderPriority @default(MEDIUM)
+  address    String
+  timeWindow String              @map("time_window")
+
+  customerId String   @map("customer_id")
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  technicianId String? @map("technician_id")
+  technician   User?   @relation(fields: [technicianId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("service_orders")
+}
+
+enum SystemOrderType {
+  INSTALLATION
+  REPAIR
+  WITHDRAWAL
+}
+
+enum SystemOrderStatus {
+  PENDING
+  ON_ROUTE
+  IN_SERVICE
+  COMPLETED
+  CANCELLED
+}
+
+enum SystemOrderPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+// --------------------------------------------------------
+// NOTIFICATION SYSTEM
+// --------------------------------------------------------
+
+enum NotificationType {
+  MODAL
+  TOAST
+  BANNER
+}
+
+enum NotificationTarget {
+  ALL
+  SPECIFIC
+}
+
+model SaasNotification {
+  id        String             @id @default(uuid())
+  title     String
+  message   String             @db.Text
+  imageUrl  String?            @map("image_url")
+  type      NotificationType   @default(MODAL)
+  target    NotificationTarget @default(ALL)
+  targetIds String[]           @default([]) @map("target_ids")
+
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  expiresAt DateTime? @map("expires_at")
+
+  reads SaasNotificationRead[]
+
+  @@map("saas_notifications")
+}
+
+model SaasNotificationRead {
+  id             String           @id @default(uuid())
+  notificationId String           @map("notification_id")
+  notification   SaasNotification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  userId         String           @map("user_id")
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt         DateTime         @default(now()) @map("read_at")
+
+  @@unique([notificationId, userId])
+  @@index([userId])
+  @@map("saas_notification_reads")
+}
+
+model TenantNotification {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  title    String
+  message  String           @db.Text
+  imageUrl String?          @map("image_url")
+  type     NotificationType @default(MODAL)
+
+  targetType NotificationTarget @default(ALL)
+  targetId   String?            @map("target_id")
+
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now())
+  expiresAt DateTime? @map("expires_at")
+
+  reads TenantNotificationRead[]
+
+  @@map("tenant_notifications")
+}
+
+model TenantNotificationRead {
+  id             String             @id @default(uuid())
+  notificationId String             @map("notification_id")
+  notification   TenantNotification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  customerId     String             @map("customer_id")
+  readAt         DateTime           @default(now()) @map("read_at")
+
+  @@unique([notificationId, customerId])
+  @@index([customerId])
+  @@map("tenant_notification_reads")
+}

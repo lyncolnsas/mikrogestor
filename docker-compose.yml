@@ -1,0 +1,89 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: mikrogestor-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+      POSTGRES_DB: ${DB_NAME:-mikrogestor}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+    networks:
+      - mikrogestor-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: mikrogestor-redis
+    restart: always
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "6379:6379"
+    networks:
+      - mikrogestor-net
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mikrogestor-app
+    restart: always
+    environment:
+      DATABASE_URL: "postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password}@db:5432/${DB_NAME:-mikrogestor}?search_path=management,public,tenant_template,radius"
+      DB_HOST: db
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-password}
+      DB_NAME: ${DB_NAME:-mikrogestor}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      ASAAS_MASTER_API_KEY: ${ASAAS_MASTER_API_KEY}
+      ASAAS_MASTER_WEBHOOK_TOKEN: ${ASAAS_MASTER_WEBHOOK_TOKEN}
+      VPN_AUTO_REGISTER: "true"
+      VPN_SERVER_ID: "default-ca-sync-01"
+      VPN_SERVER_SECRET: "ca-dev-secret-2025"
+      VPN_PUBLIC_ENDPOINT: "192.168.18.9"  # IP fixo da LAN
+      APP_URL: "${NEXT_PUBLIC_APP_URL:-http://192.168.18.9:3000}"
+      NEXT_PUBLIC_APP_URL: "${NEXT_PUBLIC_APP_URL:-http://192.168.18.9:3000}"
+      NEXTAUTH_URL: "${NEXTAUTH_URL:-http://192.168.18.9:3000}"
+      NEXTAUTH_SECRET: "${NEXTAUTH_SECRET}"
+      HOSTNAME: "0.0.0.0"
+    ports:
+      - "3001:3000"  # Porta 3000 já está em uso, usando 3001
+      - "0.0.0.0:51820:51820/udp"  # Bind explícito em todas as interfaces
+    volumes:
+      - ./docker/wireguard:/etc/wireguard
+      - ./storage:/app/storage
+      - ./scripts/docker-entrypoint.sh:/entrypoint-override.sh
+    entrypoint: ["/bin/sh", "/entrypoint-override.sh"]
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - "/dev/net/tun:/dev/net/tun"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - mikrogestor-net
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  mikrogestor-net:
+    driver: bridge

@@ -1,0 +1,177 @@
+"use client";
+
+import { useEffect, useState, useTransition } from "react";
+import { getBackupsAction, createBackupAction, downloadBackupAction } from "@/modules/saas/actions/backup.actions";
+import { BackupFile } from "@/modules/saas/services/backup.service";
+import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Loader2, Download, Database, Plus } from "lucide-react";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
+
+export default function BackupsPage() {
+    const [backups, setBackups] = useState<BackupFile[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isCreating, startTransition] = useTransition();
+
+    useEffect(() => {
+        loadBackups();
+    }, []);
+
+    const loadBackups = async () => {
+        try {
+            const response = await getBackupsAction();
+            if (response.error) {
+                console.error("Failed to load backups:", response.error);
+                return;
+            }
+            if (response.data) {
+                // Serialize dates from server action
+                setBackups(response.data.map(b => ({ ...b, createdAt: new Date(b.createdAt) })));
+            }
+        } catch (error) {
+            console.error("Failed to load backups", error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleCreateBackup = () => {
+        startTransition(async () => {
+            try {
+                const response = await createBackupAction();
+                if (response.error) {
+                    alert(`Erro ao criar backup: ${response.error}`);
+                } else {
+                    await loadBackups();
+                }
+            } catch (error) {
+                console.error("Failed to create backup", error);
+                alert("Erro ao criar backup");
+            }
+        });
+    };
+
+    const handleDownload = async (filename: string) => {
+        try {
+            const response = await downloadBackupAction(filename);
+
+            if (response.error || !response.data) {
+                alert(`Erro ao baixar backup: ${response.error || "Dados não encontrados"}`);
+                return;
+            }
+
+            const { content, filename: name } = response.data;
+
+            // Create a blob and trigger download
+            // Note: Content is base64 string
+            const byteCharacters = atob(content);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: "application/sql" });
+
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error("Failed to download backup", error);
+            alert("Erro ao baixar backup");
+        }
+    };
+
+    const formatBytes = (bytes: number) => {
+        if (bytes === 0) return "0 Bytes";
+        const k = 1024;
+        const sizes = ["Bytes", "KB", "MB", "GB"];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+    };
+
+    return (
+        <div className="container mx-auto py-10 space-y-8">
+            <div className="flex justify-between items-center">
+                <div>
+                    <h1 className="text-3xl font-bold tracking-tight">Backups do Sistema</h1>
+                    <p className="text-muted-foreground">Gerencie backups automáticos e manuais do banco de dados.</p>
+                </div>
+                <Button onClick={handleCreateBackup} disabled={isCreating}>
+                    {isCreating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+                    Novo Backup
+                </Button>
+            </div>
+
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <Database className="h-5 w-5" />
+                        Histórico de Backups
+                    </CardTitle>
+                    <CardDescription>
+                        Lista de todos os backups gerados pelo sistema.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent>
+                    {isLoading ? (
+                        <div className="flex justify-center p-8">
+                            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                        </div>
+                    ) : backups.length === 0 ? (
+                        <div className="text-center p-8 text-muted-foreground">
+                            Nenhum backup encontrado.
+                        </div>
+                    ) : (
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Data de Criação</TableHead>
+                                    <TableHead>Nome do Arquivo</TableHead>
+                                    <TableHead>Tamanho</TableHead>
+                                    <TableHead>Gatilho (Origem)</TableHead>
+                                    <TableHead className="text-right">Ações</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {backups.map((backup) => (
+                                    <TableRow key={backup.name}>
+                                        <TableCell>
+                                            {format(backup.createdAt, "dd 'de' MMMM 'às' HH:mm", { locale: ptBR })}
+                                        </TableCell>
+                                        <TableCell className="font-mono text-xs">{backup.name}</TableCell>
+                                        <TableCell>{formatBytes(backup.size)}</TableCell>
+                                        <TableCell>
+                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${backup.trigger?.startsWith("Auto")
+                                                ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+                                                : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200"
+                                                }`}>
+                                                {backup.trigger || "Desconhecido"}
+                                            </span>
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => handleDownload(backup.name)}
+                                            >
+                                                <Download className="mr-2 h-3 w-3" />
+                                                Baixar
+                                            </Button>
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    )}
+                </CardContent>
+            </Card>
+        </div>
+    );
+}
