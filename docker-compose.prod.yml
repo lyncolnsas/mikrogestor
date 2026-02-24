@@ -47,9 +47,9 @@ services:
       # wireguard:  <-- REMOVED
       #   condition: service_started
 
-  # -----------------------------------------------------------------------------
-  # DATABASE (PostgreSQL)
-  # -----------------------------------------------------------------------------
+      # -----------------------------------------------------------------------------
+      # DATABASE (PostgreSQL)
+      # -----------------------------------------------------------------------------
   db:
     image: postgres:16-alpine
     container_name: mikrogestor_db
@@ -63,10 +63,10 @@ services:
     ports:
       - "5434:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-mikrogestor}" ]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 25
 
   # -----------------------------------------------------------------------------
   # CACHE & QUEUE (Redis)
@@ -79,10 +79,10 @@ services:
     volumes:
       - ./data/redis:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 15
 
   # -----------------------------------------------------------------------------
   # RADIUS SERVER (FreeRADIUS)
@@ -109,10 +109,10 @@ services:
     #   Config files are now baked into the image with correct permissions
     #   - ./config/radius/clients.conf:/etc/raddb/clients.conf:ro
     #   - ./config/radius/mods-enabled/sql:/etc/raddb/mods-enabled/sql:ro
-  # -----------------------------------------------------------------------------
-  # VPN SERVER (Embedded in APP)
-  # -----------------------------------------------------------------------------
-  # WireGuard functionality is now handled entirely within the 'app' container
-  # to simplify networking and avoid potential conflicts.
-  # See scripts/docker-entrypoint.sh for initialization logic.
+    # -----------------------------------------------------------------------------
+    # VPN SERVER (Embedded in APP)
+    # -----------------------------------------------------------------------------
+    # WireGuard functionality is now handled entirely within the 'app' container
+    # to simplify networking and avoid potential conflicts.
+    # See scripts/docker-entrypoint.sh for initialization logic.
 
