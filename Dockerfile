@@ -20,6 +20,10 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED 1
 ENV NODE_ENV production
 
+# To avoid prisma throwing an error during build because the database doesn't exist yet
+# We need to provide a dummy URL during build time just to satisfy Prisma validation step
+ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
+
 RUN ./node_modules/.bin/prisma generate
 RUN npm run build
 
