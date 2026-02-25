@@ -56,3 +56,6 @@ config/wireguard/*.key
 config/wireguard/*.conf
 temp_keys.json
 temp_keys_utf8.json
+
+# Local Databases Content (Postgres, Redis)
+data/
