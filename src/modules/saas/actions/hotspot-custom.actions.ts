@@ -6,7 +6,13 @@ import path from "path";
 import AdmZip from "adm-zip";
 import { revalidatePath } from "next/cache";
 
-export async function uploadHotspotZipAction(tenantId: string, formData: FormData) {
+import { getCurrentTenant } from "@/lib/auth-utils.server";
+
+export async function uploadHotspotZipAction(formData: FormData) {
+    const context = await getCurrentTenant();
+    if (!context) throw new Error("Não autorizado");
+    const tenantId = context.tenantId;
+
     const file = formData.get("file") as File;
     if (!file) throw new Error("Arquivo não enviado");
 
@@ -58,9 +64,12 @@ export async function uploadHotspotZipAction(tenantId: string, formData: FormDat
     }
 }
 
-export async function toggleHotspotCustomPageAction(tenantId: string, enabled: boolean) {
+export async function toggleHotspotCustomPageAction(enabled: boolean) {
+    const context = await getCurrentTenant();
+    if (!context) throw new Error("Não autorizado");
+
     await prisma.hotspotConfig.update({
-        where: { tenantId },
+        where: { tenantId: context.tenantId },
         data: { useCustomPage: enabled }
     });
     revalidatePath("/mk-integration");

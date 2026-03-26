@@ -9,12 +9,15 @@ import {
     Globe,
     Smartphone,
     CheckCircle2,
-    XCircle
+    XCircle,
+    Loader2,
+    RefreshCw,
+    ShieldAlert
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { useQuery } from "@tanstack/react-query"
-import { getCustomerConsumptionAction } from "@/modules/customers/actions/customer-actions"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { getCustomerConsumptionAction, disconnectCustomerAction, reSyncCustomerAction } from "@/modules/customers/actions/customer-actions"
 import { Skeleton } from "@/components/ui/skeleton"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
@@ -62,7 +65,7 @@ export function CustomerProfileTabs({ customerId }: CustomerProfileTabsProps) {
             </div>
 
             <div className="min-h-[400px]">
-                {activeTab === "connection" && <ConnectionTab logs={logs} isLoading={isLoading} />}
+                {activeTab === "connection" && <ConnectionTab logs={logs} isLoading={isLoading} customerId={customerId} />}
                 {activeTab === "financial" && <CustomerFinancialTab customerId={customerId} />}
                 {activeTab === "logs" && <LogsTab logs={logs} isLoading={isLoading} />}
             </div>
@@ -87,30 +90,79 @@ function TabButton({ active, onClick, icon, label }: { active: boolean, onClick:
     )
 }
 
-function ConnectionTab({ logs, isLoading }: { logs: any[], isLoading: boolean }) {
+function ConnectionTab({ logs, isLoading, customerId }: { logs: any[], isLoading: boolean, customerId: string }) {
     const latestLog = logs[0];
     const totalDownload = logs.reduce((acc, l) => acc + l.download, 0);
     const totalGB = (totalDownload / (1024 * 1024 * 1024)).toFixed(2);
+    const queryClient = useQueryClient();
+
+    const disconnectMutation = useMutation({
+        mutationFn: () => disconnectCustomerAction(customerId),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['customer-consumption', customerId] });
+            alert("Pacote de desconexão (CoA) enviado com sucesso!");
+        },
+        onError: (err: any) => alert(err.message || "Erro ao desconectar")
+    });
+
+    const syncMutation = useMutation({
+        mutationFn: () => reSyncCustomerAction(customerId),
+        onSuccess: () => alert("Perfil sincronizado com o Radius!"),
+        onError: (err: any) => alert(err.message || "Erro na sincronização")
+    });
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-2">
             <div className="md:col-span-2 space-y-6">
                 <div className="grid grid-cols-2 gap-4">
                     <StatCard label="IP Atual" value={latestLog?.ip || "OFFLINE"} icon={<Globe className="h-4 w-4 text-blue-500" />} />
-                    <StatCard label="MAC Address" value="N/A" icon={<Smartphone className="h-4 w-4 text-blue-500" />} />
+                    <StatCard label="Interface" value={latestLog?.nas || "N/A"} icon={<Smartphone className="h-4 w-4 text-blue-500" />} />
                     <StatCard label="Sessão Atual" value={latestLog?.duration ? `${Math.floor(latestLog.duration / 3600)}h` : "0h"} icon={<Activity className="h-4 w-4 text-emerald-500" />} />
-                    <StatCard label="Consumo (Logs)" value={`${totalGB} GB`} icon={<Activity className="h-4 w-4 text-emerald-500" />} />
+                    <StatCard label="Volume Total" value={`${totalGB} GB`} icon={<Activity className="h-4 w-4 text-emerald-500" />} />
+                </div>
+
+                {/* Session Control - New Premium Section */}
+                <div className="bg-slate-950/40 p-6 rounded-2xl border border-white/5 space-y-4">
+                    <div className="flex items-center gap-2">
+                        <ShieldAlert className="h-4 w-4 text-primary" />
+                        <h4 className="text-sm font-black uppercase tracking-widest text-white/60">Controle de Sessão Hardened</h4>
+                    </div>
+                    <div className="flex flex-wrap gap-4">
+                        <Button 
+                            variant="destructive" 
+                            size="sm" 
+                            className="rounded-xl font-black italic tracking-tighter uppercase h-11 px-6 shadow-lg shadow-rose-950/20"
+                            onClick={() => disconnectMutation.mutate()}
+                            disabled={disconnectMutation.isPending}
+                        >
+                            {disconnectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <XCircle className="h-4 w-4 mr-2" />}
+                            Derrubar pppoe (CoA)
+                        </Button>
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="rounded-xl font-black italic tracking-tighter uppercase h-11 px-6 border-white/10 hover:bg-white/5"
+                            onClick={() => syncMutation.mutate()}
+                            disabled={syncMutation.isPending}
+                        >
+                            {syncMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                            Forçar Re-sincronia Radius
+                        </Button>
+                    </div>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest italic leading-relaxed">
+                        Atenção: Ao derrubar o PPPoE, o MikroTik forçará o assinante a relogar, aplicando novas regras de limites instantaneamente.
+                    </p>
                 </div>
             </div>
 
             <div className="bg-card border rounded-lg p-6">
                 <h3 className="font-semibold mb-4">Status da Sessão</h3>
                 <div className="space-y-4">
-                    {isLoading ? <Skeleton className="h-20 w-full" /> : logs.slice(0, 3).map((log, i) => (
+                    {isLoading ? <Skeleton className="h-20 w-full" /> : logs.slice(0, 5).map((log, i) => (
                         <div key={i} className="flex gap-3">
-                            {log.end ? <XCircle className="h-5 w-5 text-rose-500 shrink-0" /> : <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />}
+                            {(!log.end || log.end === "Ativa") ? <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" /> : <XCircle className="h-5 w-5 text-rose-500 shrink-0" />}
                             <div>
-                                <p className="text-sm font-medium">{log.end ? `Conexão encerrada: ${log.cause}` : "Sessão Ativa"}</p>
+                                <p className="text-sm font-medium">{(!log.end || log.end === "Ativa") ? "Sessão Ativa" : `Conexão encerrada: ${log.cause || "Normal"}`}</p>
                                 <p className="text-xs text-muted-foreground">
                                     {format(new Date(log.start), "dd/MM 'às' HH:mm", { locale: ptBR })}
                                 </p>

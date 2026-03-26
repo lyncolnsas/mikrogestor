@@ -5,7 +5,9 @@ import { prisma } from "@/lib/prisma";
 import { NeonCard, NeonCardHeader, NeonCardTitle, NeonCardDescription, NeonCardContent } from "@/components/ui/neon-card";
 import { redirect } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { Info } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { Info, ShieldAlert } from "lucide-react";
 
 export default async function NasRegistryPage() {
     const context = await getCurrentTenant();
@@ -36,6 +38,22 @@ export default async function NasRegistryPage() {
                     </div>
                 </NeonCardHeader>
                 <NeonCardContent className="p-8">
+                    {!tunnel && (
+                        <div className="mb-8 p-6 rounded-3xl bg-amber-500/5 border border-amber-500/20 space-y-4">
+                            <div className="flex items-center gap-3 text-amber-500">
+                                <ShieldAlert className="h-5 w-5" />
+                                <span className="font-black uppercase text-xs tracking-widest italic">Atenção: VPN Requerida</span>
+                            </div>
+                            <p className="text-sm text-muted-foreground leading-relaxed">
+                                Para utilizar a conexão via <strong className="text-foreground">Túnel VPN (Recomendado)</strong>, você precisa primeiro configurar um túnel na sua cota. Se preferir, pode usar IP Direto agora e alterar depois.
+                            </p>
+                            <Link href="/mk-integration" className="inline-block">
+                                <Button variant="outline" className="rounded-xl border-amber-500/20 text-amber-500 hover:bg-amber-500/10 h-10 px-4 font-bold text-[10px] uppercase">
+                                    Configurar Túnel Primeiro
+                                </Button>
+                            </Link>
+                        </div>
+                    )}
                     <NasForm tunnelIp={tunnel?.internalIp || "Indisponível"} />
                 </NeonCardContent>
             </NeonCard>

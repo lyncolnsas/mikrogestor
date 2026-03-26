@@ -12,13 +12,35 @@ const hotspotConfigSchema = z.object({
   primaryColor: z.string().default('#2563eb'),
   logoUrl: z.string().optional(),
   bannerUrl: z.string().optional(),
+  videoUrl: z.string().optional(),
+  bgType: z.enum(['IMAGE', 'VIDEO', 'COLOR']).default('IMAGE'),
+  
   collectName: z.boolean().default(true),
   collectEmail: z.boolean().default(true),
   collectPhone: z.boolean().default(true),
   collectCpf: z.boolean().default(false),
+  
+  lgpdActive: z.boolean().default(true),
+  termsOfUse: z.string().optional(),
+  privacyPolicyUrl: z.string().optional(),
+  
   sessionTime: z.number().default(60),
   redirectUrl: z.string().optional(),
   useCustomPage: z.boolean().optional(),
+  
+  // Marketing Automation
+  welcomeEmailActive: z.boolean().default(false),
+  welcomeEmailSubject: z.string().optional(),
+  welcomeEmailBody: z.string().optional(),
+  
+  welcomeWhatsappActive: z.boolean().default(false),
+  welcomeWhatsappBody: z.string().optional(),
+  
+  npsActive: z.boolean().default(false),
+  npsQuestion: z.string().optional(),
+  npsTimeout: z.number().default(60),
+  
+  walledGarden: z.array(z.string()).optional(),
 });
 
 /**
@@ -38,27 +60,31 @@ export async function getHotspotConfigAction(tenantId?: string) {
   });
 }
 
-/**
- * Saves or updates the hotspot configuration.
- */
 export async function saveHotspotConfigAction(data: any) {
   const context = await getCurrentTenant();
   if (!context) throw new Error("Unauthorized");
 
-  // Manual transform for checkbox strings from FormData if needed, but here we assume clean object
-  const validated = hotspotConfigSchema.parse(data);
+  try {
+    const validated = hotspotConfigSchema.parse(data);
 
-  const config = await prisma.hotspotConfig.upsert({
-    where: { tenantId: context.tenantId },
-    create: {
-      ...validated,
-      tenantId: context.tenantId
-    },
-    update: validated
-  });
+    const config = await prisma.hotspotConfig.upsert({
+      where: { tenantId: context.tenantId },
+      create: {
+        ...validated,
+        tenantId: context.tenantId
+      },
+      update: validated
+    });
 
-  revalidatePath("/mk-integration");
-  return { success: true, config };
+    revalidatePath("/mk-integration");
+    return { success: true, config };
+  } catch (error: any) {
+    console.error("[Save Hotspot Config] Error:", error);
+    return { 
+      success: false, 
+      error: error.message || "Erro desconhecido ao salvar banco de dados. Verifique se as migrações (db push) foram aplicadas." 
+    };
+  }
 }
 
 /**
@@ -185,4 +211,37 @@ export async function generateHotspotScriptAction(nasId: number, options: {
 `.trim();
 
   return { success: true, script };
+}
+
+/**
+ * Uploads a hotspot asset (image or video).
+ */
+export async function uploadHotspotAssetAction(formData: FormData) {
+  const context = await getCurrentTenant();
+  if (!context) throw new Error("Unauthorized");
+
+  const file = formData.get("file") as File;
+  if (!file) throw new Error("Arquivo não encontrado");
+
+  const isVideo = file.type.startsWith("video/");
+  const isImage = file.type.startsWith("image/");
+  
+  if (!isVideo && !isImage) throw new Error("Tipo de arquivo não suportado. Use imagens ou vídeos.");
+
+  // Validation: 10MB for video, 500KB for image
+  const maxSize = isVideo ? 10 * 1024 * 1024 : 500 * 1024;
+  if (file.size > maxSize) {
+    throw new Error(`Arquivo muito grande. Máximo de ${isVideo ? '10MB' : '500KB'}.`);
+  }
+
+  const { storage } = await import("@/lib/storage");
+  const buffer = Buffer.from(await file.arrayBuffer());
+  
+  // Create unique filename to avoid collision but keep extension
+  const extension = file.name.split(".").pop();
+  const filename = `asset_${Date.now()}.${extension}`;
+  
+  const url = await storage.upload(buffer, filename, context.tenantId);
+  
+  return { success: true, url };
 }

@@ -15,6 +15,8 @@ import { landingContent } from "@/config/landing-page-content";
 import { AuthTrigger } from "@/components/auth/auth-trigger";
 
 // Server Component
+export const dynamic = "force-dynamic";
+
 export default async function LandingPage() {
     // Fetch active public plans
     const plans = await getPublicPlansAction();

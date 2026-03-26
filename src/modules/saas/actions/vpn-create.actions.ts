@@ -6,7 +6,7 @@ import * as z from "zod";
 
 const createTunnelSchema = z.object({
     name: z.string().min(2, "Nome muito curto").max(30),
-    type: z.enum(["MOBILE", "PC", "MIKROTIK"]),
+    type: z.enum(["MOBILE", "PC", "MIKROTIK", "ROUTER"]),
     protocol: z.enum(["WIREGUARD", "L2TP", "SSTP"]).default("WIREGUARD"),
     targetTenantId: z.string().optional(),
     bypassQuota: z.boolean().optional(),
@@ -19,6 +19,7 @@ export const createVpnTunnelAction = protectedAction(
 
         // Determine which tenant to create VPN for
         let tenantId: string;
+        let shouldIgnoreQuota = false;
 
         if (session.role === "ISP_ADMIN") {
             // ISP_ADMIN can only create VPNs for their own tenant
@@ -26,29 +27,19 @@ export const createVpnTunnelAction = protectedAction(
                 throw new Error("Sessão inválida: tenant não identificado.");
             }
             tenantId = session.tenantId;
-
-            // Ignore targetTenantId if provided by ISP_ADMIN (security)
-            if (targetTenantId && targetTenantId !== session.tenantId) {
-                throw new Error("Você só pode criar VPNs para o seu próprio provedor.");
-            }
-
-            // ISP Admin cannot bypass quota by themselves (unless logic changes)
-            if (bypassQuota) {
-                throw new Error("Apenas administradores do sistema podem criar VPNs bônus.");
-            }
-
+            
+            // ISP_ADMIN must respect the quota (the plan limit)
+            shouldIgnoreQuota = false;
         } else {
             // SUPER_ADMIN can provide targetTenantId or leave it null for "Administrative"
             tenantId = targetTenantId as string;
+            
+            // SUPER_ADMIN can bypass quota if explicitly requested
+            shouldIgnoreQuota = !!bypassQuota;
         }
 
-        // Validate VPN quota before creating (only if tenant is present)
-        // Bypass if SUPER_ADMIN explicitly requested it
-        if (!bypassQuota && tenantId) {
-            await VpnService.validateVpnQuota(tenantId);
-        }
-
-        await VpnService.createDeviceTunnel(tenantId, name, type, undefined, protocol);
+        // The quota validation is now handled inside createDeviceTunnel with ignoreQuota
+        await VpnService.createDeviceTunnel(tenantId, name, type, undefined, protocol, shouldIgnoreQuota);
 
         const { revalidatePath } = await import("next/cache");
         revalidatePath("/(isp-panel)/mk-integration");

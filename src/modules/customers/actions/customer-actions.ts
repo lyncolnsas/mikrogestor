@@ -467,3 +467,64 @@ export const updateCustomerAction = protectedAction(
         }
     }
 );
+
+/**
+ * Force-syncs a customer's profile across all systems (RADIUS + Local Cache)
+ */
+export const reSyncCustomerAction = protectedAction(
+    ["ISP_ADMIN", "SUPER_ADMIN"],
+    async (customerId: string, session) => {
+        return await withTenantDb(async (db) => {
+            const customer = await db.customer.findUnique({
+                where: { id: customerId },
+                include: { plan: true }
+            });
+
+            if (!customer) throw new Error("Assinante não encontrado.");
+
+            const upload = Number(customer.plan?.upload || 0);
+            const download = Number(customer.plan?.download || 0);
+
+            await RadiusService.syncCustomer(session.tenantId!, {
+                id: customer.id,
+                radiusPassword: customer.radiusPassword || "",
+                cpfCnpj: customer.cpfCnpj,
+                nasId: customer.nasId,
+                status: customer.status as any
+            }, {
+                upload,
+                download,
+                remoteIpPool: customer.plan?.remoteIpPool || undefined
+            });
+
+            return { success: true };
+        });
+    }
+);
+
+/**
+ * Sends a CoA (Disconnect Packet) to the router to force a session refresh
+ */
+export const disconnectCustomerAction = protectedAction(
+    ["ISP_ADMIN", "SUPER_ADMIN"],
+    async (customerId: string, session) => {
+        return await withTenantDb(async (db) => {
+            const customer = await db.customer.findUnique({
+                where: { id: customerId },
+                include: { nas: true }
+            });
+
+            if (!customer || !customer.nas) {
+                throw new Error("Assinante ou Concentrador não encontrado para esta operação.");
+            }
+
+            const username = customer.cpfCnpj ? `t${session.tenantId}_${customer.cpfCnpj}` : `t${session.tenantId}_${customer.id}`;
+            const nasIp = (customer.nas as any).nasname;
+            const secret = (customer.nas as any).secret;
+
+            await RadiusService.disconnectUser(username, nasIp, secret);
+            
+            return { success: true };
+        });
+    }
+);

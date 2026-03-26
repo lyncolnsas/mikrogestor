@@ -3,6 +3,8 @@ import { getPublicPlansAction } from "@/modules/saas/actions/plan.actions";
 import { RegisterFormClient } from "./register-form-client";
 import { Network } from "lucide-react";
 
+export const dynamic = "force-dynamic";
+
 export default async function RegisterPage({
     searchParams,
 }: {

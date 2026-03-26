@@ -15,7 +15,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Loader2, Smartphone, Monitor, Router, Server } from "lucide-react"
+import { Loader2, Smartphone, Monitor, Router, Server, Zap, History, ShieldCheck, Info } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { createVpnTunnelAction } from "@/modules/saas/actions/vpn-create.actions"
 import { toast } from "sonner"
 import {
@@ -185,27 +186,76 @@ export function AddVpnDeviceModal({ open, onOpenChange, onSuccess, quota }: AddV
                             </Select>
                         </div>
                         {form.watch("type") === "MIKROTIK" && (
-                            <div className="space-y-2">
-                                <Label className="text-xs font-bold uppercase text-slate-300">Protocolo VPN</Label>
-                                <Select onValueChange={(value) => form.setValue("protocol", value as any)} defaultValue={form.getValues("protocol")}>
-                                    <SelectTrigger className="rounded-xl h-12 bg-slate-900 border-slate-800 text-white focus:ring-primary transition-all">
-                                        <SelectValue placeholder="Selecione o protocolo" />
-                                    </SelectTrigger>
-                                    <SelectContent className="bg-slate-900 border-slate-800 text-white">
-                                        <SelectItem value="WIREGUARD" className="focus:bg-slate-800 focus:text-primary">
-                                            <div className="flex flex-col">
-                                                <span className="font-bold">WireGuard (Recomendado)</span>
-                                                <span className="text-[10px] text-slate-400">RouterOS v7+ (Mais rápido e seguro)</span>
-                                            </div>
-                                        </SelectItem>
-                                        <SelectItem value="L2TP" className="focus:bg-slate-800 focus:text-primary">
-                                            <div className="flex flex-col">
-                                                <span className="font-bold">L2TP/IPsec (Plano B)</span>
-                                                <span className="text-[10px] text-slate-400">RouterOS v5/v6 (Legado/Compatibilidade)</span>
-                                            </div>
-                                        </SelectItem>
-                                    </SelectContent>
-                                </Select>
+                            <div className="space-y-4">
+                                <Label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1">Tecnologia VPN (Hardware)</Label>
+                                
+                                <div className="grid grid-cols-2 gap-4">
+                                    {/* Option 1: WIREGUARD (ROS v7) */}
+                                    <div 
+                                        onClick={() => form.setValue("protocol", "WIREGUARD")}
+                                        className={`cursor-pointer rounded-2xl p-5 border-2 transition-all flex flex-col gap-3 group ${
+                                            form.watch("protocol") === "WIREGUARD" 
+                                            ? "border-primary bg-primary/10 shadow-[0_0_15px_rgba(var(--primary-rgb),0.2)]" 
+                                            : "border-slate-800 bg-slate-900/50 hover:border-slate-700 hover:bg-slate-900"
+                                        }`}
+                                    >
+                                        <div className={`p-2 rounded-xl border w-fit ${
+                                            form.watch("protocol") === "WIREGUARD" ? "bg-primary text-white" : "bg-slate-800 text-slate-400 group-hover:text-slate-200"
+                                        }`}>
+                                            <Zap className="h-5 w-5" />
+                                        </div>
+                                        <div>
+                                            <h5 className="font-black text-sm uppercase italic tracking-tight">Moderna (v7.x+)</h5>
+                                            <p className="text-[10px] font-bold text-slate-500 uppercase leading-snug mt-1">
+                                                Recomendado para RB com RouterOS v7 ou superior.
+                                            </p>
+                                        </div>
+                                        <div className="mt-auto pt-2 flex items-center gap-1.5 overflow-hidden">
+                                            <Badge variant="outline" className="text-[9px] bg-emerald-500/10 text-emerald-500 border-none px-1.5 py-0 h-4">WIREGUARD</Badge>
+                                            <Badge variant="outline" className="text-[9px] bg-blue-500/10 text-blue-500 border-none px-1.5 py-0 h-4">ULTRA-LOW LATENCY</Badge>
+                                        </div>
+                                    </div>
+
+                                    {/* Option 2: L2TP (ROS v4-v6) */}
+                                    <div 
+                                        onClick={() => form.setValue("protocol", "L2TP")}
+                                        className={`cursor-pointer rounded-2xl p-5 border-2 transition-all flex flex-col gap-3 group ${
+                                            form.watch("protocol") === "L2TP" 
+                                            ? "border-amber-500 bg-amber-500/10 shadow-[0_0_15px_rgba(245,158,11,0.2)]" 
+                                            : "border-slate-800 bg-slate-900/50 hover:border-slate-700 hover:bg-slate-900"
+                                        }`}
+                                    >
+                                        <div className={`p-2 rounded-xl border w-fit ${
+                                            form.watch("protocol") === "L2TP" ? "bg-amber-500 text-white" : "bg-slate-800 text-slate-400 group-hover:text-slate-200"
+                                        }`}>
+                                            <History className="h-5 w-5" />
+                                        </div>
+                                        <div>
+                                            <h5 className="font-black text-sm uppercase italic tracking-tight">Legada (v4-v6)</h5>
+                                            <p className="text-[10px] font-bold text-slate-500 uppercase leading-snug mt-1">
+                                                L2TP/IPsec para RBs antigas ou sem suporte WireGuard.
+                                            </p>
+                                        </div>
+                                        <div className="mt-auto pt-2 flex items-center gap-1.5 overflow-hidden">
+                                            <Badge variant="outline" className="text-[9px] bg-amber-500/10 text-amber-500 border-none px-1.5 py-0 h-4">L2TP/IPSEC</Badge>
+                                            <Badge variant="outline" className="text-[9px] bg-slate-500/10 text-slate-500 border-none px-1.5 py-0 h-4">PLANO B</Badge>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <p className="text-[10px] text-center font-bold text-slate-500 bg-slate-900/50 p-3 rounded-xl border border-dashed border-slate-800 italic">
+                                    Não sabe sua versão? Use <code className="text-primary">/system resource print</code> no terminal do WinBox.
+                                </p>
+                            </div>
+                        )}
+
+                        {form.watch("type") !== "MIKROTIK" && (
+                            <div className="p-5 bg-primary/5 rounded-2xl border border-primary/10 flex items-center gap-4">
+                                <ShieldCheck className="h-6 w-6 text-primary shrink-0" />
+                                <p className="text-xs font-bold text-slate-400 leading-relaxed italic">
+                                    Dispositivos móveis e computadores utilizam automaticamente o protocolo 
+                                    <strong className="text-primary italic"> WireGuard 3.0</strong> para máxima compatibilidade e segurança.
+                                </p>
                             </div>
                         )}
                     </div>

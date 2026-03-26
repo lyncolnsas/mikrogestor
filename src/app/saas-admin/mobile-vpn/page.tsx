@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { Smartphone } from "lucide-react";
 import { VpnKeyService } from "@/modules/saas/vpn-key.service";
 
+export const dynamic = "force-dynamic";
+
 export default async function MobileVpnPage() {
 
     let serializedPeers: MobilePeer[] = [];

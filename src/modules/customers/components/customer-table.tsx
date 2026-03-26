@@ -7,14 +7,14 @@ import {
     getCoreRowModel,
     useReactTable,
 } from "@tanstack/react-table"
-import { MoreHorizontal, Power, History, UserCheck, Loader2, UserCog, ExternalLink } from "lucide-react"
+import { MoreHorizontal, Power, History, UserCheck, Loader2, UserCog, ExternalLink, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import {
     unblockCustomerAction,
     kickCustomerConnectionAction,
     getCustomerRadiusLogsAction
 } from "@/modules/customers/actions/customer-quick.actions"
-import { deleteCustomerAction, toggleCustomerStatusAction } from "@/modules/customers/actions/customer-actions"
+import { deleteCustomerAction, toggleCustomerStatusAction, reSyncCustomerAction } from "@/modules/customers/actions/customer-actions"
 import {
     AlertDialog,
     AlertDialogAction,
@@ -203,6 +203,22 @@ export function CustomerTable({ data }: CustomerTableProps) {
                     }
                 }
 
+                const handleReSync = async () => {
+                    try {
+                        setLoadingAction(customer.id)
+                        const result = await reSyncCustomerAction(customer.id)
+                        if ((result as any).error) { 
+                            toast.error((result as any).error) 
+                        } else {
+                            toast.success("Perfil sincronizado com o Radius!")
+                        }
+                    } catch (err: any) {
+                        toast.error(err.message || "Erro na sincronização")
+                    } finally {
+                        setLoadingAction(null)
+                    }
+                }
+
                 return (
                     <div className="text-right flex items-center justify-end gap-1">
                         <DropdownMenu>
@@ -221,6 +237,9 @@ export function CustomerTable({ data }: CustomerTableProps) {
                                 <DropdownMenuItem className="gap-3 rounded-lg py-2 font-bold cursor-pointer transition-all focus:bg-primary/5 focus:text-primary" onClick={handleToggleStatus} disabled={isLoading}>
                                     <Power className={cn("h-4 w-4", customer.status === 'ACTIVE' ? "text-rose-500" : "text-emerald-500")} /> 
                                     {customer.status === 'ACTIVE' ? 'Bloquear Acesso' : 'Desbloquear'}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem className="gap-3 rounded-lg py-2 font-bold cursor-pointer transition-all focus:bg-primary/5 focus:text-primary" onClick={handleReSync} disabled={isLoading}>
+                                    <RefreshCw className="h-4 w-4 text-emerald-500" /> Sincronizar Radius
                                 </DropdownMenuItem>
                                 <DropdownMenuItem className="gap-3 rounded-lg py-2 font-bold cursor-pointer transition-all focus:bg-primary/5 focus:text-primary" onClick={handleKick} disabled={isLoading}>
                                     <UserCheck className="h-4 w-4 text-blue-500" /> Kickar Conexão

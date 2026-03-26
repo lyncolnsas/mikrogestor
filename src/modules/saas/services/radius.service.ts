@@ -51,7 +51,33 @@ export class RadiusService {
                 });
             }
 
-            // 5. RadCheck: NAS-IP-Address (Isolation)
+            // 4. RadReply: Framed-Pool
+            if (plan.remoteIpPool) {
+                await innerTx.radReply.deleteMany({ where: { username, attribute: 'Framed-Pool' } });
+                await innerTx.radReply.create({
+                    data: {
+                        username,
+                        attribute: 'Framed-Pool',
+                        op: '=',
+                        value: plan.remoteIpPool
+                    }
+                });
+            }
+
+            // 5. RadReply: MikroTik-Address-List (For Blocking Redirection)
+            await innerTx.radReply.deleteMany({ where: { username, attribute: 'MikroTik-Address-List' } });
+            if (customer.status === 'BLOCKED') {
+                await innerTx.radReply.create({
+                    data: {
+                        username,
+                        attribute: 'MikroTik-Address-List',
+                        op: '=',
+                        value: 'BLOCKED_USERS'
+                    }
+                });
+            }
+
+            // 6. RadCheck: NAS-IP-Address (Isolation)
             // Se o cliente estiver vinculado a um NAS, adicionamos a restrição no Radius
             await innerTx.radCheck.deleteMany({ where: { username, attribute: 'NAS-IP-Address' } });
             if (customer.nasId) {

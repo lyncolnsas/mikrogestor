@@ -255,23 +255,18 @@ export class VpnService {
         name = "Router Principal",
         type: "ROUTER" | "MIKROTIK" | "MOBILE" | "PC" = "ROUTER",
         serverId?: string,
-        protocol: "WIREGUARD" | "L2TP" | "SSTP" = "WIREGUARD"
+        protocol: "WIREGUARD" | "L2TP" | "SSTP" = "WIREGUARD",
+        ignoreQuota = false
     ) {
         const db = tx || prisma;
         try {
-            // 0. Validar Quota antes de começar (somente se vinculado a um tenant)
-            if (tenantId) {
+            // 0. Validar Quota antes de começar (somente se vinculado a um tenant e NÃO for ignorado)
+            if (tenantId && !ignoreQuota) {
                 await this.validateVpnQuota(tenantId, db);
             }
 
-            // 1. Check if Main Router already exists
-            if (type === "ROUTER" && tenantId) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const existing = await (db as any).vpnTunnel.findFirst({
-                    where: { tenantId, type: "ROUTER" }
-                });
-                if (existing) return existing;
-            }
+            // [REMOVED] Logic that prevented multiple ROUTER tunnels for the same tenant
+            // as requested: "adm pode adicionar quantos tuneis vpn ele quiser"
 
             let server;
 
@@ -428,10 +423,11 @@ export class VpnService {
     static async createDeviceTunnel(
         tenantId: string | undefined, 
         name: string, 
-        type: "MOBILE" | "PC" | "MIKROTIK", 
+        type: "MOBILE" | "PC" | "MIKROTIK" | "ROUTER", 
         serverId?: string,
-        protocol: "WIREGUARD" | "L2TP" | "SSTP" = "WIREGUARD"
+        protocol: "WIREGUARD" | "L2TP" | "SSTP" = "WIREGUARD",
+        ignoreQuota = false
     ) {
-        return await this.provisionForTenant(tenantId, undefined, name, type, serverId, protocol);
+        return await this.provisionForTenant(tenantId, undefined, name, type, serverId, protocol, ignoreQuota);
     }
 }

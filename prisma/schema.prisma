@@ -98,6 +98,9 @@ model Nas {
   apiUser     String? @default("admin") @map("api_user")
   apiPassword String? @map("api_password")
   apiPort     Int?    @default(8728) @map("api_port")
+  
+  vpnProtocol     String? @default("L2TP") @map("vpn_protocol")
+  mikrotikVersion String? @default("v6") @map("mikrotik_version")
 
   tenantId String? @map("tenant_id")
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -141,6 +144,7 @@ model Tenant {
   hotspotLeads      HotspotLead[]
   sentNotifications TenantNotification[]
   provisioningLogs  TenantProvisioningLog[]
+  vouchers          HotspotVoucher[]
 
   // Per-tenant System Settings
   smtpConfig      Json?    @map("smtp_config")    // { host, port, user, pass, subject, body }
@@ -201,6 +205,8 @@ model HotspotConfig {
   primaryColor  String  @default("#2563eb") @map("primary_color")
   logoUrl       String? @map("logo_url")
   bannerUrl     String? @map("banner_url")
+  videoUrl      String? @map("video_url")
+  bgType        String  @default("IMAGE") @map("bg_type") // IMAGE, VIDEO, COLOR
 
   // Lead Collection Config
   collectName   Boolean @default(true) @map("collect_name")
@@ -208,17 +214,35 @@ model HotspotConfig {
   collectPhone  Boolean @default(true) @map("collect_phone")
   collectCpf    Boolean @default(false) @map("collect_cpf")
 
-  termsOfUse    String? @db.Text @map("terms_of_use")
+  termsOfUse        String? @db.Text @map("terms_of_use")
+  privacyPolicyUrl  String? @map("privacy_policy_url")
+  lgpdActive        Boolean @default(true) @map("lgpd_active")
+
   redirectUrl   String? @map("redirect_url")
   sessionTime   Int     @default(60) @map("session_time") // In minutes
 
+  // Automation / Marketing
+  welcomeEmailActive   Boolean @default(false) @map("welcome_email_active")
+  welcomeEmailSubject  String? @map("welcome_email_subject")
+  welcomeEmailBody     String? @db.Text @map("welcome_email_body")
+  
+  welcomeWhatsappActive Boolean @default(false) @map("welcome_whatsapp_active")
+  welcomeWhatsappBody   String? @db.Text @map("welcome_whatsapp_body")
+
+  // NPS & Satisfaction
+  npsActive     Boolean @default(false) @map("nps_active")
+  npsQuestion   String? @db.Text @map("nps_question")
+  npsTimeout    Int     @default(60) @map("nps_timeout")
+
   isActive      Boolean @default(true) @map("is_active")
+  
+  // Technical / Infrastructure
+  walledGarden   String[] @default([]) @map("walled_garden")
   
   // Customization
   useCustomPage  Boolean @default(false) @map("use_custom_page")
   customPagePath String? @map("custom_page_path")
   templateZipUrl String? @map("template_zip_url") // Where the user can download the model
-
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -244,10 +268,40 @@ model HotspotLead {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
+  voucher    HotspotVoucher?
+
   @@index([tenantId])
   @@index([email])
   @@index([macAddress])
   @@map("hotspot_leads")
+}
+
+model HotspotVoucher {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  duration    Int      // In minutes
+  dataLimit   BigInt?  @map("data_limit") // In bytes
+  
+  status      VoucherStatus @default(ACTIVE)
+  usedAt      DateTime?     @map("used_at")
+  leadId      String?       @unique @map("lead_id")
+  lead        HotspotLead?  @relation(fields: [leadId], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([code])
+  @@map("hotspot_vouchers")
+}
+
+enum VoucherStatus {
+  ACTIVE
+  USED
+  EXPIRED
 }
 
 model Testimonial {
