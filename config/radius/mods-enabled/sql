@@ -23,6 +23,9 @@ sql {
 
     read_clients = yes
     client_table = "nas"
+    
+    # Missing group_attribute for PostgreSQL queries
+    group_attribute = "SQL-Group"
 
     pool {
         start = 5
@@ -33,5 +36,7 @@ sql {
         lifetime = 0
         idle_timeout = 60
     }
+    
+    # Include queries for PostgreSQL
     $INCLUDE ${modconfdir}/${.:name}/main/${dialect}/queries.conf
 }

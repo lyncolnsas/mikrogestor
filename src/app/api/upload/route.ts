@@ -1,61 +1,70 @@
 import { NextRequest, NextResponse } from "next/server";
-import { writeFile, mkdir } from "fs/promises";
+import { prisma } from "@/lib/prisma";
+import { storage } from "@/lib/storage";
 import path from "path";
-import { join } from "path";
 
 export async function POST(request: NextRequest) {
     try {
-        // Simple auth check - adjust based on your project's auth
-        // In a real app, use: const session = await getServerSession(authOptions);
-        // For now, we'll try to get the tenantId from the dashboard context if possible, 
-        // but API routes usually need proper session handling.
+        // 1. Authenticate via Header (x-api-key)
+        const apiKey = request.headers.get("x-api-key");
+        
+        if (!apiKey) {
+            return NextResponse.json({ error: "Unauthorized: Missing API Key" }, { status: 401 });
+        }
 
-        // Let's assume the user is authenticated if they can hit this endpoint 
-        // (middleware usually handles protection, but we should verify).
+        const user = await prisma.user.findUnique({
+            where: { apiKey },
+            include: { tenant: true }
+        });
 
+        if (!user) {
+            return NextResponse.json({ error: "Invalid API Key" }, { status: 401 });
+        }
+
+        // 2. Extract and Validate File
         const formData = await request.formData();
         const file = formData.get("file") as File;
-        const tenantId = formData.get("tenantId") as string;
-        const type = formData.get("type") as string || "banner"; // default to banner
+        const type = formData.get("type") as string || "photo";
 
         if (!file) {
             return NextResponse.json({ error: "No file provided" }, { status: 400 });
         }
 
-        if (!tenantId) {
-            return NextResponse.json({ error: "No tenant ID provided" }, { status: 400 });
-        }
-
-        // Validate file type
-        const validTypes = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"];
+        const validTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
         if (!validTypes.includes(file.type)) {
             return NextResponse.json({ error: "Invalid file type" }, { status: 400 });
         }
 
-        // Validate file size (2MB)
-        if (file.size > 2 * 1024 * 1024) {
-            return NextResponse.json({ error: "File exceeds 2MB limit" }, { status: 400 });
+        if (file.size > 5 * 1024 * 1024) { // 5MB limit
+            return NextResponse.json({ error: "File exceeds 5MB limit" }, { status: 400 });
         }
 
+        // 3. Storage Logic (Via Abstraction Layer)
+        const tenantId = user.tenantId || "default";
         const bytes = await file.arrayBuffer();
         const buffer = Buffer.from(bytes);
 
-        // Ensure directory exists: public/uploads/[tenantId]
-        const uploadDir = join(process.cwd(), "public", "uploads", tenantId);
-        await mkdir(uploadDir, { recursive: true });
-
-        // Generate unique filename
         const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-        const ext = path.extname(file.name) || (file.type === "image/svg+xml" ? ".svg" : ".png");
+        const ext = path.extname(file.name) || ".png";
         const filename = `${type}-${uniqueSuffix}${ext}`;
-        const filepath = join(uploadDir, filename);
 
-        await writeFile(filepath, buffer);
+        const publicUrl = await storage.upload(buffer, filename, tenantId);
 
-        // Return public URL
-        const publicUrl = `/uploads/${tenantId}/${filename}`;
+        // 4. Record in Database (Rule: Photos are isolated by user/tenant)
+        const photo = await prisma.photo.create({
+            data: {
+                url: publicUrl,
+                userId: user.id,
+                tenantId: tenantId
+            }
+        });
 
-        return NextResponse.json({ url: publicUrl });
+        return NextResponse.json({ 
+            success: true, 
+            url: publicUrl,
+            photoId: photo.id 
+        });
+
     } catch (error) {
         console.error("Upload error:", error);
         return NextResponse.json({ error: "Internal server error" }, { status: 500 });

@@ -36,7 +36,7 @@ ENV NEXT_TELEMETRY_DISABLED 1
 
 # Install runtime dependencies for VPN monitoring (WireGuard)
 RUN apk add --no-cache wireguard-tools iproute2 bash postgresql-client curl iptables
-RUN npm install -g prisma@6.2.1
+RUN npm install -g prisma@6.2.1 tsx typescript
 RUN npm install bcryptjs @prisma/client
 
 RUN addgroup --system --gid 1001 nodejs

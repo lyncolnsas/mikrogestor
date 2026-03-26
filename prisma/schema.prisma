@@ -315,12 +315,30 @@ model User {
   password          String // Hash
   tenantId          String?
   tenant            Tenant?                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  // Rules Implementation (SaaS Gallery)
+  apiKey            String?                @unique @default(uuid()) @map("api_key")
+  photos            Photo[]
+
   createdAt         DateTime               @default(now())
   updatedAt         DateTime               @updatedAt
   serviceOrders     ServiceOrder[]
   notificationReads SaasNotificationRead[]
 
   @@map("users")
+}
+
+model Photo {
+  id        String   @id @default(cuid())
+  url       String   // Link da imagem no Storage (S3/Local)
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  tenantId  String?  @map("tenant_id")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("photos")
 }
 
 enum UserRole {
@@ -578,8 +596,11 @@ model ServiceOrder {
   type       SystemOrderType
   status     SystemOrderStatus   @default(PENDING)
   priority   SystemOrderPriority @default(MEDIUM)
+  subject    String?
+  description String?
   address    String
-  timeWindow String              @map("time_window")
+  timeWindow String?             @map("time_window")
+  closedAt   DateTime?           @map("closed_at")
 
   customerId String   @map("customer_id")
   customer   Customer @relation(fields: [customerId], references: [id])

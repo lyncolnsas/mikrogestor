@@ -1,45 +1,49 @@
 import { NextRequest, NextResponse } from "next/server";
 import { decrypt } from "@/lib/auth/session";
+import { getSubdomain } from "@/lib/tenancy/subdomain";
 
 // 1. Definir rotas públicas e protegidas
-const publicRoutes = ["/", "/auth/login", "/auth/register", "/login"];
+const publicRoutes = ["/", "/auth/login", "/auth/register", "/login", "/locked"];
 const saasAdminRoutes = ["/saas-admin"]; // Protege tudo sob /saas-admin
 const ispPanelRoutes = ["/customers", "/financial", "/network", "/overview", "/settings"];
 const technicianRoutes = ["/jobs", "/technician"];
 
 export default async function middleware(req: NextRequest) {
-    // 2. Verificar se a rota atual é protegida ou pública
+    const host = req.headers.get("host") || "";
+    const subdomain = getSubdomain(host);
     const path = req.nextUrl.pathname;
-    const isPublicRoute = publicRoutes.includes(path);
 
-    // 3. Descriptografar a sessão do cookie
+    // 2. Descriptografar a sessão do cookie
     const cookie = req.cookies.get("session")?.value;
     const session = cookie ? await decrypt(cookie) : null;
 
-    // 4. Redirecionar para /auth/login se o usuário não estiver autenticado
+    // 3. Determinar o Tenant Sugerido (Propriedade Rule 1: Subdomínio Identifica o Usuário)
+    // Se houver subdomínio, ele é a fonte da verdade para o tenant.
+    const effectiveTenantSlug = subdomain || session?.tenantSlug || null;
+
+    // 4. Verificar se a rota atual é protegida ou pública
+    const isPublicRoute = publicRoutes.includes(path);
+
+    // 5. Redirecionar para /auth/login se o usuário não estiver autenticado
     if (!isPublicRoute && !session) {
         return NextResponse.redirect(new URL("/auth/login", req.nextUrl));
     }
 
-    // 4.5. Verificar Status do Tenant (Kill Switch)
+    // 6. Verificar Status do Tenant (Kill Switch)
     if (session?.tenantStatus === "BLOCKED" && path !== "/locked" && path !== "/auth/login") {
-        // Permite que Super Admin bypass? Talvez não se estiver impersonando.
-        // Se for login real de Super Admin, tenantId geralmente é undefined, então status undefined.
-        // Status bloqueado vem do tenant.
         return NextResponse.redirect(new URL("/locked", req.nextUrl));
     }
 
-    // 5. Lógica de Redirecionamento Baseada em Papel (Traffic Controller)
+    // 7. Lógica de Redirecionamento Baseada em Papel (Traffic Controller)
     if (session) {
         // Se logado e tentando acessar rotas públicas (exceto root), redirecionar para dashboard
-        if (isPublicRoute && path !== "/") {
+        if (isPublicRoute && path !== "/" && path !== "/locked") {
             return redirectToDashboard(session.role, req);
         }
 
         // Proteger SaaS Admin
         if (saasAdminRoutes.some(route => path.startsWith(route))) {
             if (session.role !== "SUPER_ADMIN") {
-                
                 return redirectToDashboard(session.role, req);
             }
         }
@@ -55,11 +59,11 @@ export default async function middleware(req: NextRequest) {
         }
     }
 
-    // 6. Propagar contexto do tenant via header para rotas de API e componentes de servidor
+    // 8. Propagar contexto do tenant via header para rotas de API e componentes de servidor
     const response = NextResponse.next();
 
-    if (session?.tenantSlug) {
-        response.headers.set('x-tenant-slug', session.tenantSlug);
+    if (effectiveTenantSlug) {
+        response.headers.set('x-tenant-slug', effectiveTenantSlug);
     }
 
     return response;

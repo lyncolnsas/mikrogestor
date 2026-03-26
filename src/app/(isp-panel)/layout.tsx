@@ -13,7 +13,8 @@ import {
     ScrollText,
     Wallet,
     MessageCircle,
-    Globe
+    Globe,
+    Image as ImageIcon
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ISPHeader } from "@/components/isp-header";
@@ -26,6 +27,7 @@ const menuItems = [
     { label: "Clientes", href: "/customers", icon: Users },
     { label: "Financeiro", href: "/financial/dashboard", icon: CircleDollarSign },
     { label: "Planos", href: "/financial/plans", icon: Wallet },
+    { label: "Galeria", href: "/gallery", icon: ImageIcon },
     { label: "Integração MK", href: "/mk-integration", icon: Network },
     { label: "Relatórios", href: "/reports/revenue", icon: BarChart3 },
     { label: "WhatsApp", href: "/whatsapp", icon: MessageCircle },
