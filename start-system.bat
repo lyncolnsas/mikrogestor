@@ -175,9 +175,22 @@ if !errorlevel! neq 0 (
     exit /b 1
 )
 
+
 echo.
 echo %GREEN%✓ Containers iniciados com sucesso!%RESET%
-echo %GREEN%✓ Containers iniciados com sucesso!%RESET%
+
+:: ============================================================================
+:: 7.1. SINCRONIZAR BANCO DE DADOS (PRISMA)
+:: ============================================================================
+echo.
+echo %YELLOW%[7.1/8] Sincronizando tabelas do banco de dados...%RESET%
+docker compose -f docker-compose.prod.yml exec -T app npx prisma db push --accept-data-loss
+if !errorlevel! neq 0 (
+    echo %RED%⚠ Aviso: Falha ao sincronizar banco de dados, mas tentando continuar...%RESET%
+) else (
+    echo %GREEN%✓ Banco de dados sincronizado!%RESET%
+)
+
 
 :: ============================================================================
 :: 8. AGUARDAR INICIALIZAÇÃO E VERIFICAR STATUS

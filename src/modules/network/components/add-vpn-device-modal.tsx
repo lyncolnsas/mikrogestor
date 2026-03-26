@@ -29,6 +29,7 @@ import {
 const deviceSchema = z.object({
     name: z.string().min(2, "Nome muito curto").max(30, "Nome muito longo"),
     type: z.enum(["MOBILE", "PC", "MIKROTIK"]),
+    protocol: z.enum(["WIREGUARD", "L2TP", "SSTP"]).default("WIREGUARD"),
 });
 
 interface AddVpnDeviceModalProps {
@@ -48,6 +49,7 @@ export function AddVpnDeviceModal({ open, onOpenChange, onSuccess, quota }: AddV
         defaultValues: {
             name: "",
             type: "MIKROTIK",
+            protocol: "WIREGUARD",
         }
     });
 
@@ -182,6 +184,30 @@ export function AddVpnDeviceModal({ open, onOpenChange, onSuccess, quota }: AddV
                                 </SelectContent>
                             </Select>
                         </div>
+                        {form.watch("type") === "MIKROTIK" && (
+                            <div className="space-y-2">
+                                <Label className="text-xs font-bold uppercase text-slate-300">Protocolo VPN</Label>
+                                <Select onValueChange={(value) => form.setValue("protocol", value as any)} defaultValue={form.getValues("protocol")}>
+                                    <SelectTrigger className="rounded-xl h-12 bg-slate-900 border-slate-800 text-white focus:ring-primary transition-all">
+                                        <SelectValue placeholder="Selecione o protocolo" />
+                                    </SelectTrigger>
+                                    <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                                        <SelectItem value="WIREGUARD" className="focus:bg-slate-800 focus:text-primary">
+                                            <div className="flex flex-col">
+                                                <span className="font-bold">WireGuard (Recomendado)</span>
+                                                <span className="text-[10px] text-slate-400">RouterOS v7+ (Mais rápido e seguro)</span>
+                                            </div>
+                                        </SelectItem>
+                                        <SelectItem value="L2TP" className="focus:bg-slate-800 focus:text-primary">
+                                            <div className="flex flex-col">
+                                                <span className="font-bold">L2TP/IPsec (Plano B)</span>
+                                                <span className="text-[10px] text-slate-400">RouterOS v5/v6 (Legado/Compatibilidade)</span>
+                                            </div>
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
                     </div>
 
                     <DialogFooter className="pt-6 border-t border-slate-800 flex items-center justify-end gap-3">

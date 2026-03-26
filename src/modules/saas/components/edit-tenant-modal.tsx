@@ -35,6 +35,7 @@ interface Plan {
 export interface TenantData {
     id: string;
     name: string;
+    extraVpns: number;
     subscription?: {
         planId: string;
         plan?: {
@@ -68,6 +69,7 @@ const tenantSchema = z.object({
     gracePeriod: z.coerce.number().int().min(0, "Mínimo 0 dias"),
     autoBlock: z.boolean().default(true),
     autoUnblock: z.boolean().default(true),
+    extraVpns: z.coerce.number().int().min(0, "Mínimo 0"),
 });
 
 interface EditTenantModalProps {
@@ -99,6 +101,7 @@ export function EditTenantModal({ open, onOpenChange, tenant, plans }: EditTenan
             gracePeriod: tenant.financialConfig?.gracePeriod || 5,
             autoBlock: tenant.financialConfig?.autoBlock ?? true,
             autoUnblock: tenant.financialConfig?.autoUnblock ?? true,
+            extraVpns: tenant.extraVpns || 0,
         }
     })
 
@@ -212,29 +215,41 @@ export function EditTenantModal({ open, onOpenChange, tenant, plans }: EditTenan
                         </div>
                     )}
 
-                    {/* VPN Usage Display */}
-                    <div className="p-4 bg-indigo-500/5 border border-indigo-500/20 rounded-xl">
-                        <div className="flex items-center justify-between mb-2">
+                    <div className="p-4 bg-indigo-500/5 border border-indigo-500/20 rounded-xl space-y-4">
+                        <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <Server className="h-4 w-4 text-indigo-400" />
-                                <h4 className="text-xs font-black uppercase tracking-widest text-indigo-400/80">Uso de VPN</h4>
+                                <h4 className="text-xs font-black uppercase tracking-widest text-indigo-400/80">Capacidade VPN</h4>
                             </div>
                             <span className="text-sm font-mono font-bold text-indigo-300">
-                                {vpnUsed}/{vpnLimit} VPNs
+                                {vpnUsed}/{vpnLimit + (tenant.extraVpns || 0)} Ativas
                             </span>
                         </div>
-                        <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden">
-                            <div
-                                className={`h-full transition-all ${vpnUsed >= vpnLimit ? 'bg-red-500' :
-                                        vpnUsed / vpnLimit > 0.8 ? 'bg-orange-500' :
-                                            'bg-indigo-500'
-                                    }`}
-                                style={{ width: `${Math.min((vpnUsed / vpnLimit) * 100, 100)}%` }}
-                            />
+                        
+                        <div className="flex items-center gap-4">
+                            <div className="flex-1 bg-slate-900 rounded-full h-2 overflow-hidden">
+                                <div
+                                    className={`h-full transition-all ${vpnUsed >= (vpnLimit + (tenant.extraVpns || 0)) ? 'bg-red-500' :
+                                            vpnUsed / (vpnLimit + (tenant.extraVpns || 0)) > 0.8 ? 'bg-orange-500' :
+                                                'bg-indigo-500'
+                                        }`}
+                                    style={{ width: `${Math.min((vpnUsed / (vpnLimit + (tenant.extraVpns || 0))) * 100, 100)}%` }}
+                                />
+                            </div>
+                            <div className="w-24 shrink-0">
+                                <Label htmlFor="extraVpns" className="text-[10px] font-black uppercase text-indigo-400/60 block mb-1">Extras (SaaS)</Label>
+                                <Input 
+                                    id="extraVpns" 
+                                    type="number" 
+                                    {...form.register("extraVpns")} 
+                                    className="h-10 text-xs bg-slate-900 border-indigo-500/20 text-indigo-300 font-bold rounded-lg text-center focus:border-indigo-500"
+                                />
+                            </div>
                         </div>
-                        {vpnUsed >= vpnLimit && (
-                            <p className="text-xs text-red-400 mt-2 font-medium">
-                                ⚠️ Limite atingido. Delete VPNs existentes ou faça upgrade do plano.
+
+                        {vpnUsed >= (vpnLimit + (tenant.extraVpns || 0)) && (
+                            <p className="text-xs text-red-400 font-medium">
+                                ⚠️ Limite atingido. Adicione capacidade extra ou faça upgrade do plano.
                             </p>
                         )}
                     </div>

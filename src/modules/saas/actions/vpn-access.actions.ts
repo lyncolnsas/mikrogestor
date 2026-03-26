@@ -15,12 +15,14 @@ export const getVpnDevicesAction = protectedAction(
                 id: true,
                 name: true,
                 type: true,
+                protocol: true,
                 internalIp: true,
                 isActive: true,
                 lastHandshake: true,
                 totalBytesRx: true,
                 totalBytesTx: true,
                 clientPrivateKey: true,
+                vpnUsername: true,
                 server: {
                     select: {
                         publicEndpoint: true,
@@ -28,7 +30,7 @@ export const getVpnDevicesAction = protectedAction(
                         publicKey: true
                     }
                 }
-            },
+            } as any,
             orderBy: { createdAt: "asc" }
         });
     }
@@ -65,13 +67,16 @@ export const getVpnConnectionDetailsAction = protectedAction(
 
         return {
             id: tunnel.id,
-            name: tunnel.name,
-            type: tunnel.type,
-            internalIp: tunnel.internalIp,
-            publicKey: tunnel.server.publicKey,
-            privateKey: tunnel.clientPrivateKey,
-            endpoint: `${tunnel.server.publicEndpoint}:${tunnel.server.listenPort}`,
-            serverPublicKey: tunnel.server.publicKey,
+            name: (tunnel as any).name,
+            type: (tunnel as any).type,
+            protocol: (tunnel as any).protocol,
+            internalIp: (tunnel as any).internalIp,
+            publicKey: (tunnel as any).server?.publicKey,
+            privateKey: (tunnel as any).clientPrivateKey,
+            vpnUsername: (tunnel as any).vpnUsername,
+            vpnPassword: (tunnel as any).vpnPassword,
+            endpoint: `${(tunnel as any).server?.publicEndpoint}:${(tunnel as any).server?.listenPort}`,
+            serverPublicKey: (tunnel as any).server?.publicKey,
             allowedIps: "10.255.0.0/16, 172.16.0.0/12, 10.0.0.0/8" // Standard internal ranges
         };
     }

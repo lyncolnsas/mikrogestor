@@ -68,12 +68,85 @@ export class IpamService {
     }
 
     /**
-     * Checks if a specific IP is available (e.g. for static assignment requests)
+     * Sincroniza um pool de IPs local para a tabela Radippool (Radius)
+     * Isso permite que o FreeRADIUS distribua os IPs dinamicamente.
      */
-    async isIpAvailable(serverId: string, ip: string): Promise<boolean> {
-        const count = await prisma.vpnTunnel.count({
-            where: { serverId, internalIp: ip }
+    async syncPoolToRadius(poolName: string, rangeStart: string, rangeEnd: string, nasIp: string = "0.0.0.0"): Promise<number> {
+        const startInt = ipToInt(rangeStart);
+        const endInt = ipToInt(rangeEnd);
+
+        if (startInt > endInt) {
+            throw new Error('IP Range inválido: Início maior que o fim.');
+        }
+
+        const ips: string[] = [];
+        for (let i = startInt; i <= endInt; i++) {
+            ips.push(intToIp(i));
+        }
+
+        // 1. Limpa entradas antigas deste pool para este NAS
+        await (prisma as any).radippool.deleteMany({
+            where: { poolName, nasipaddress: nasIp }
         });
-        return count === 0;
+
+        // 2. Insere os novos IPs
+        // Note: Prisma createMany is efficient for batching
+        const data = ips.map(ip => ({
+            poolName,
+            framedipaddress: ip,
+            nasipaddress: nasIp,
+            calledstationid: "",
+            callingstationid: "",
+        }));
+
+        const result = await (prisma as any).radippool.createMany({
+            data: data
+        });
+
+        return result.count;
+    }
+
+    /**
+     * Cria uma nova configuração de Pool para o Tenant
+     */
+    async createPool(data: { name: string, rangeStart: string, rangeEnd: string, description?: string, nasId?: number }) {
+        const pool = await (prisma as any).ipPool.create({
+            data: {
+                name: data.name,
+                rangeStart: data.rangeStart,
+                rangeEnd: data.rangeEnd,
+                description: data.description,
+                nasId: data.nasId
+            }
+        });
+
+        // Sincroniza imediatamente com o Radius
+        let nasIp = "0.0.0.0";
+        if (data.nasId) {
+            const nas = await prisma.nas.findUnique({ where: { id: data.nasId } });
+            if (nas) nasIp = nas.nasname;
+        }
+
+        await this.syncPoolToRadius(pool.name, pool.rangeStart, pool.rangeEnd, nasIp);
+
+        return pool;
+    }
+
+    async getPools() {
+        return await (prisma as any).ipPool.findMany({
+            orderBy: { createdAt: 'desc' }
+        });
+    }
+
+    async deletePool(id: string) {
+        const pool = await (prisma as any).ipPool.findUnique({ where: { id } });
+        if (!pool) return;
+
+        // Remove do Radius também
+        await (prisma as any).radippool.deleteMany({
+            where: { poolName: pool.name }
+        });
+
+        return await (prisma as any).ipPool.delete({ where: { id } });
     }
 }

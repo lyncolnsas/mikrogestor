@@ -33,6 +33,7 @@ interface Subscription {
 }
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
+import { GatewaySettingsCard } from "@/modules/saas/components/gateway-settings-card";
 
 export default function SaasBillingPage() {
     const [searchTerm, setSearchTerm] = useState("");
@@ -149,6 +150,9 @@ export default function SaasBillingPage() {
                     </div>
                 </Card>
             </div>
+
+            {/* Gateway Configuration */}
+            <GatewaySettingsCard />
 
             {/* Overdue Alert */}
             {metrics && metrics.overdueCount > 0 && (

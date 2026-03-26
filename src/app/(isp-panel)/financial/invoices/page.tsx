@@ -1,15 +1,47 @@
-export const dynamic = "force-dynamic";
+"use client"
 
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Search, FileText, Filter, Plus } from "lucide-react"
+import { Search, FileText, Filter, Plus, Upload } from "lucide-react"
+import { toast } from "sonner"
+import { useState, useRef } from "react"
 import { InvoiceList } from "./invoice-list"
 import { getInvoicesAction } from "@/modules/financial/actions/invoice-actions"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Card, CardHeader, CardContent } from "@/components/ui/card"
 
-export default async function InvoicesPage() {
-    const result = await getInvoicesAction();
-    const invoices = result.data || [];
+export default function InvoicesPage({ initialData }: { initialData?: any[] }) {
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isUploading, setIsUploading] = useState(false);
+    const invoices = initialData || [];
+
+    async function handleImportReturn(e: React.ChangeEvent<HTMLInputElement>) {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setIsUploading(true);
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+            const response = await fetch("/api/financial/return", {
+                method: "POST",
+                body: formData,
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                toast.success(`Importação Concluída: ${result.summary?.totalPaid} faturas liquidadas com sucesso!`);
+                // No mundo real, re-fetching aqui
+            } else {
+                toast.error(result.error || "Erro ao processar arquivo");
+            }
+        } catch (error) {
+            toast.error("Erro fatal ao importar retorno");
+        } finally {
+            setIsUploading(false);
+            if (fileInputRef.current) fileInputRef.current.value = "";
+        }
+    }
 
     return (
         <div className="p-8 space-y-8 animate-in fade-in duration-700 max-w-[1600px] mx-auto">
@@ -19,6 +51,22 @@ export default async function InvoicesPage() {
                     <p className="text-muted-foreground mt-1">Gerencie o ciclo de vida financeiro dos seus assinantes.</p>
                 </div>
                 <div className="flex gap-3">
+                    <input 
+                        type="file" 
+                        className="hidden" 
+                        ref={fileInputRef} 
+                        onChange={handleImportReturn}
+                        accept=".ret,.txt"
+                    />
+                    <Button 
+                        variant="outline" 
+                        className="gap-2 rounded-xl font-bold border-2"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploading}
+                    >
+                        <Upload className={`h-4 w-4 ${isUploading ? 'animate-bounce' : ''}`} /> 
+                        {isUploading ? 'Processando...' : 'Importar Retorno'}
+                    </Button>
                     <Button variant="outline" className="gap-2 rounded-xl font-bold border-2">
                         <Filter className="h-4 w-4" /> Filtrar
                     </Button>

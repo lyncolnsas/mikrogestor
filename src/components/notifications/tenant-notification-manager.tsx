@@ -58,37 +58,18 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
 import { createTenantNotificationAction, deleteTenantNotificationAction } from "@/modules/customers/actions/notification.actions";
-// import type { NotificationType as NotificationTypeEnum, NotificationTarget as NotificationTargetEnum, TenantNotification } from "@prisma/client";
+import type { NotificationType as NotificationTypeEnum, NotificationTarget as NotificationTargetEnum, TenantNotification } from "@prisma/client";
 
-// Workaround for undefined Types/Enums from @prisma/client due to generation failure
 const NotificationType = {
     MODAL: "MODAL",
     TOAST: "TOAST",
     BANNER: "BANNER"
 } as const;
 
-type NotificationTypeEnum = keyof typeof NotificationType;
-
 const NotificationTarget = {
     ALL: "ALL",
     SPECIFIC: "SPECIFIC"
 } as const;
-
-type NotificationTargetEnum = keyof typeof NotificationTarget;
-
-interface TenantNotification {
-    id: string;
-    title: string;
-    message: string;
-    imageUrl: string | null;
-    type: NotificationTypeEnum;
-    targetType: NotificationTargetEnum;
-    targetId: string | null;
-    isActive: boolean;
-    createdAt: Date;
-    expiresAt: Date | null;
-    tenantId: string;
-}
 
 const formSchema = z.object({
     title: z.string().min(3, "O título deve ter pelo menos 3 caracteres"),
@@ -106,6 +87,7 @@ interface TenantNotificationManagerProps {
 export function TenantNotificationManager({ initialNotifications }: TenantNotificationManagerProps) {
     const [notifications, setNotifications] = useState(initialNotifications);
     const [open, setOpen] = useState(false);
+    const [showLimitModal, setShowLimitModal] = useState(false);
     const [isPending, startTransition] = useTransition();
 
     const form = useForm<z.infer<typeof formSchema>>({
@@ -120,6 +102,12 @@ export function TenantNotificationManager({ initialNotifications }: TenantNotifi
     });
 
     async function onSubmit(values: z.infer<typeof formSchema>) {
+        if (notifications.length >= 10) {
+            setOpen(false); // Close creation modal
+            setShowLimitModal(true);
+            return;
+        }
+
         startTransition(async () => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const result = await createTenantNotificationAction(values) as any;
@@ -129,10 +117,12 @@ export function TenantNotificationManager({ initialNotifications }: TenantNotifi
             }
             if (result.data) {
                 toast.success("Notificação enviada com sucesso!");
-                setNotifications([
-                    { ...result.data, _count: { reads: 0 } },
-                    ...notifications
-                ]);
+                const newNotif = {
+                    ...result.data,
+                    _count: { reads: 0 }
+                } as any;
+                
+                setNotifications([newNotif, ...notifications]);
                 setOpen(false);
                 form.reset();
             }
@@ -341,6 +331,27 @@ export function TenantNotificationManager({ initialNotifications }: TenantNotifi
                     </Table>
                 </CardContent>
             </Card>
+
+            {/* Modal de Limite Atingido */}
+            <Dialog open={showLimitModal} onOpenChange={setShowLimitModal}>
+                <DialogContent>
+                    <DialogHeader>
+                        <div className="mx-auto h-12 w-12 rounded-full bg-amber-100 flex items-center justify-center mb-4">
+                            <AlertTriangle className="h-6 w-6 text-amber-600" />
+                        </div>
+                        <DialogTitle className="text-center text-xl">Limite de Comunicados Atingido</DialogTitle>
+                        <DialogDescription className="text-center pt-2">
+                            Você alcançou o limite máximo de <strong>10 comunicados ativos</strong>. 
+                            Para enviar uma nova mensagem aos assinantes, é necessário excluir pelo menos um comunicado antigo do seu histórico.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="sm:justify-center mt-4">
+                        <Button onClick={() => setShowLimitModal(false)} variant="outline" className="w-full sm:w-auto">
+                            Entendido, vou organizar
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

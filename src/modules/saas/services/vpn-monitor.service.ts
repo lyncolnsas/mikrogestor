@@ -97,6 +97,9 @@ export class VpnMonitorService {
             });
 
             for (const tunnel of tunnels) {
+                // Skip tunnels without public key (L2TP/SSTP doesn't report to WireGuard stats)
+                if (!tunnel.clientPublicKey) continue;
+
                 const stats = trafficMap.get(tunnel.clientPublicKey);
 
                 if (stats) {

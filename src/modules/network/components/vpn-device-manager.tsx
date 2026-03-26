@@ -38,12 +38,14 @@ interface VpnTunnel {
     id: string;
     name: string;
     type: "ROUTER" | "MIKROTIK" | "MOBILE" | "PC";
+    protocol?: "WIREGUARD" | "L2TP" | "SSTP";
     internalIp: string;
     isActive: boolean;
     lastHandshake: Date | null;
     totalBytesRx: bigint | number;
     totalBytesTx: bigint | number;
-    clientPrivateKey: string;
+    clientPrivateKey?: string | null;
+    vpnUsername?: string | null;
     server: {
         publicEndpoint: string;
         listenPort: number;
@@ -115,8 +117,13 @@ export function VpnDeviceManager({ initialTunnels, tenantId, isSuperAdmin = fals
     };
 
     const copyConfig = (tunnel: VpnTunnel) => {
+        if (tunnel.protocol === "L2TP" || tunnel.protocol === "SSTP") {
+            toast.error("Configuração em texto plano não disponível para L2TP/SSTP. Use o script do Mikrotik.");
+            return;
+        }
+
         const config = `[Interface]
-PrivateKey = ${tunnel.clientPrivateKey}
+PrivateKey = ${tunnel.clientPrivateKey || 'CHAVE_AUSENTE'}
 Address = ${tunnel.internalIp}/32
 DNS = 1.1.1.1
 

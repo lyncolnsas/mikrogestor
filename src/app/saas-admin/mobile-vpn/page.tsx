@@ -12,8 +12,9 @@ export default async function MobileVpnPage() {
         // Incluir Tenant e Server para exibir na lista e gerar QR Code
         const peers = await prisma.vpnTunnel.findMany({
             where: {
-                type: { in: ["MOBILE", "PC"] }
-            },
+                type: { in: ["MOBILE", "PC"] },
+                protocol: "WIREGUARD"
+            } as any,
             include: {
                 tenant: {
                     select: {
@@ -40,13 +41,15 @@ export default async function MobileVpnPage() {
         // Serializar datas para passar para o Client Component
         serializedPeers = peers.map(peer => {
             let decryptedPrivateKey = peer.clientPrivateKey;
-            try {
-                // Tenta descriptografar a chave privada
-                decryptedPrivateKey = VpnKeyService.decrypt(peer.clientPrivateKey);
-            } catch (e) {
-                console.error(`[MobileVpnPage] Erro ao descriptografar chave do peer ${peer.id}:`, e);
-                // Mantém a chave original (criptografada ou inválida) em caso de erro, 
-                // para que a UI possa lidar ou exibir o erro de forma apropriada.
+            if (peer.clientPrivateKey) {
+                try {
+                    // Tenta descriptografar a chave privada
+                    decryptedPrivateKey = VpnKeyService.decrypt(peer.clientPrivateKey);
+                } catch (e) {
+                    console.error(`[MobileVpnPage] Erro ao descriptografar chave do peer ${peer.id}:`, e);
+                    // Mantém a chave original (criptografada ou inválida) em caso de erro, 
+                    // para que a UI possa lidar ou exibir o erro de forma apropriada.
+                }
             }
 
             return {

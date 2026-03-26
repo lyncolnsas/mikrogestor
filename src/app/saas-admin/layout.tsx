@@ -16,7 +16,8 @@ import {
     Smartphone,
     TrendingUp,
     Menu, // Added Menu icon
-    Database
+    Database,
+    Clock
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { logoutUser } from "@/actions/auth";
@@ -35,6 +36,8 @@ const menuItems = [
     { label: "Monitores", href: "/saas-admin/monitors", icon: Activity },
     { label: "Backups", href: "/saas-admin/backups", icon: Database },
     { label: "Notificações", href: "/saas-admin/notifications", icon: MessageSquare },
+    { label: "Recuperação de Senha", href: "/saas-admin/recovery-requests", icon: Clock },
+    { label: "Configurações", href: "/saas-admin/settings", icon: Building2 }, // Building2 or Cog
 ];
 
 export default function SaasAdminLayout({

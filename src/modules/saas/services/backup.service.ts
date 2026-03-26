@@ -52,7 +52,21 @@ export class BackupService {
             console.warn("[Backup] Could not parse DATABASE_URL, using as is.");
         }
 
-        const command = `pg_dump "${cleanDbUrl}" -f "${filepath}"`;
+        // Exclude large traffic/log tables using full schema names and wildcards
+        const excludeTables = [
+            'radius.radacct',
+            'radius.radpostauth',
+            'management.vpn_traffic_logs',
+            'management.vpn_server_stats',
+            'management.saas_audit_logs',
+            'management.user_security_logs',
+            'management.tenant_provisioning_logs',
+            'management.nas_stats'
+        ];
+        
+        // Use double quotes for the table patterns to handle wildcards and schemas correctly in the shell
+        const excludeFlags = excludeTables.map(t => `--exclude-table="${t}"`).join(" ");
+        const command = `pg_dump "${cleanDbUrl}" ${excludeFlags} -f "${filepath}"`;
 
         try {
 
@@ -80,6 +94,51 @@ export class BackupService {
                 if (error.stderr) console.error("[Backup] stderr:", error.stderr);
 
             throw new Error(`Failed to create backup: ${error.message}`);
+        }
+    }
+
+    /**
+     * Restores a database from a backup file
+     * WARNING: This overrides the current database state!
+     * @param filename The backup file name (if in STORAGE_PATH) or identifier
+     * @param customPath The full path to the SQL file if not in the default STORAGE_PATH
+     */
+    static async restoreBackup(filename: string, customPath?: string): Promise<boolean> {
+        const filepath = customPath || this.getBackupPath(filename);
+        if (!existsSync(filepath)) throw new Error("Arquivo de backup não encontrado");
+
+        const dbUrl = process.env.DATABASE_URL;
+        if (!dbUrl) throw new Error("DATABASE_URL not configured");
+
+        let cleanDbUrl = dbUrl;
+        try {
+            const urlObj = new URL(dbUrl);
+            urlObj.search = ""; 
+            cleanDbUrl = urlObj.toString();
+        } catch (e) {
+            console.warn("[Backup] Could not parse DATABASE_URL, using as is.");
+        }
+
+        // We use psql to execute the SQL file
+        // Note: The backup generated via pg_dump might need to be run against a clean schema 
+        // if it wasn't dumped with --clean. 
+        // For standard SQL dumps, we'll try to execute it as is.
+        const command = `psql "${cleanDbUrl}" -f "${filepath}"`;
+
+        try {
+            console.warn(`[Restore] Starting restoration from ${filename}...`);
+            const { stdout, stderr } = await execAsync(command);
+
+            if (stderr) {
+                console.warn("[Restore] psql stderr output:", stderr);
+                // Note: psql often outputs notices to stderr even on success
+            }
+
+            console.log(`[Restore] Successfully restored from ${filename}`);
+            return true;
+        } catch (error: any) {
+            console.error("[Restore] Failed to restore backup:", error);
+            throw new Error(`Restoration failed: ${error.message}`);
         }
     }
 

@@ -49,16 +49,13 @@ export class PaymentService {
 
             // 3. Confirmação via WhatsApp
             if (customer.phone) {
-                const manager = WhatsAppInstanceManager.getInstance();
-                const sock = manager.getInstance(tenantId);
-
-                if (sock) {
-                    const firstName = customer.name.split(' ')[0];
-                    const message = `✅ *Pagamento Confirmado!*\n\nOlá, *${firstName}*.\n\nRecebemos o pagamento da sua fatura no valor de *R$ ${Number(invoice.total).toFixed(2)}*.\n\nSua conexão foi reativada e já deve estar operando normalmente. Obrigado por escolher o Mikrogestor! 🚀`;
-
-                    const jid = `${customer.phone.replace(/\D/g, "")}@s.whatsapp.net`;
-                    await sock.sendMessage(jid, { text: message }).catch((e: unknown) => console.error("Erro ao confirmar pagamento WA:", e));
-                }
+                const { WhatsAppNotificationService } = await import("../../whatsapp/services/whatsapp-notification.service");
+                
+                await WhatsAppNotificationService.sendPaymentConfirmation(tenantId, {
+                    customerName: customer.name || customer.fullName || "Cliente",
+                    phone: customer.phone,
+                    value: Number(invoice.total).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                });
             }
 
             revalidatePath("/customers");

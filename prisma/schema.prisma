@@ -68,6 +68,22 @@ model RadAcct {
   @@map("radacct")
 }
 
+model Radippool {
+  id               Int      @id @default(autoincrement())
+  poolName         String   @map("pool_name")
+  framedipaddress  String   @map("framedipaddress")
+  nasipaddress     String   @map("nasipaddress")
+  calledstationid  String   @map("calledstationid")
+  callingstationid String   @map("callingstationid")
+  expiryTime       DateTime? @map("expiry_time")
+  username         String?  @map("username")
+  poolKey          String?  @map("pool_key")
+
+  @@index([poolName])
+  @@index([framedipaddress])
+  @@map("radippool")
+}
+
 model Nas {
   id          Int     @id @default(autoincrement())
   nasname     String  @unique // VPN IP
@@ -85,6 +101,9 @@ model Nas {
 
   tenantId String? @map("tenant_id")
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  customers Customer[]
+  ipPools   IpPool[]
 
   @@map("nas")
 }
@@ -105,7 +124,9 @@ model Tenant {
   blockReason String?      @map("block_reason")
 
   // Asaas Management
-  asaasCustomerId String? @map("asaas_customer_id")
+  asaasCustomerId   String? @map("asaas_customer_id")
+  extraVpns         Int     @default(0) @map("extra_vpns")
+  paymentGateway    String  @default("ASAAS") @map("payment_gateway") // ASAAS, MERCADO_PAGO, etc.
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -116,8 +137,14 @@ model Tenant {
   subscription      Subscription?
   invoices          SaasInvoice[]
   landingConfig     LandingConfig?
+  hotspotConfig     HotspotConfig?
+  hotspotLeads      HotspotLead[]
   sentNotifications TenantNotification[]
   provisioningLogs  TenantProvisioningLog[]
+
+  // Per-tenant System Settings
+  smtpConfig      Json?    @map("smtp_config")    // { host, port, user, pass, subject, body }
+  whatsappEnabled Boolean  @default(false) @map("whatsapp_enabled")
 
   @@index([asaasCustomerId])
   @@map("tenants")
@@ -149,6 +176,11 @@ model LandingConfig {
   showFloatingCTA     Boolean @default(true) @map("show_floating_cta")
 
   isActive  Boolean  @default(true) @map("is_active")
+  
+  // Custom Redirection Pages (Radius)
+  blockHtml String? @db.Text @map("block_html")
+  alertHtml String? @db.Text @map("alert_html")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -156,6 +188,66 @@ model LandingConfig {
   faqs         FAQ[]
 
   @@map("tenant_landing_configs")
+}
+
+model HotspotConfig {
+  id       String @id @default(uuid())
+  tenantId String @unique @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name          String  @default("HS_Mikrogestor")
+  title         String  @default("Wi-Fi Grátis")
+  subtitle      String? @default("Cadastre-se para navegar agora!")
+  primaryColor  String  @default("#2563eb") @map("primary_color")
+  logoUrl       String? @map("logo_url")
+  bannerUrl     String? @map("banner_url")
+
+  // Lead Collection Config
+  collectName   Boolean @default(true) @map("collect_name")
+  collectEmail  Boolean @default(true) @map("collect_email")
+  collectPhone  Boolean @default(true) @map("collect_phone")
+  collectCpf    Boolean @default(false) @map("collect_cpf")
+
+  termsOfUse    String? @db.Text @map("terms_of_use")
+  redirectUrl   String? @map("redirect_url")
+  sessionTime   Int     @default(60) @map("session_time") // In minutes
+
+  isActive      Boolean @default(true) @map("is_active")
+  
+  // Customization
+  useCustomPage  Boolean @default(false) @map("use_custom_page")
+  customPagePath String? @map("custom_page_path")
+  templateZipUrl String? @map("template_zip_url") // Where the user can download the model
+
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("tenant_hotspot_configs")
+}
+
+model HotspotLead {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name      String?
+  email     String?
+  phone     String?
+  cpfCnpj   String? @map("cpf_cnpj")
+  macAddress String? @map("mac_address")
+  
+  // Radius account link if created
+  username  String?
+  
+  lastSeenAt DateTime @default(now()) @map("last_seen_at")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([email])
+  @@index([macAddress])
+  @@map("hotspot_leads")
 }
 
 model Testimonial {
@@ -311,6 +403,7 @@ model User {
   id                String                 @id @default(uuid())
   email             String                 @unique
   name              String?
+  phone             String?                @unique @map("phone") // Novo: Telefone para identificação/contato
   role              UserRole               @default(ISP_ADMIN)
   password          String // Hash
   tenantId          String?
@@ -320,12 +413,58 @@ model User {
   apiKey            String?                @unique @default(uuid()) @map("api_key")
   photos            Photo[]
 
+  // Account Verification (OTP)
+  emailVerified     Boolean                @default(false) @map("email_verified")
+  verificationCode  String?                @map("verification_code")
+  verificationExpires DateTime?            @map("verification_expires")
+
   createdAt         DateTime               @default(now())
   updatedAt         DateTime               @updatedAt
   serviceOrders     ServiceOrder[]
   notificationReads SaasNotificationRead[]
+  securityLogs      UserSecurityLog[]
 
   @@map("users")
+}
+
+model UserSecurityLog {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event     String   // LOGIN, LOGOUT, PASSWORD_CHANGE, 2FA_ENABLE, etc.
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  location  String?  // Optional: "São Paulo, BR"
+  device    String?  // Optional: "Chrome on Windows"
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("user_security_logs")
+}
+
+model PasswordRecoveryRequest {
+  id          String   @id @default(uuid())
+  name        String?
+  email       String?
+  phone       String?
+  message     String?  // Detalhes extras se necessário
+  status      String   @default("PENDING") // PENDING, SENT_EMAIL, ATTENTION_REQUIRED, RESOLVED
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("saas_password_recovery_requests")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  email     String
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@map("saas_password_reset_tokens")
 }
 
 model Photo {
@@ -351,14 +490,13 @@ model VpnServer {
   id             String           @id @default(uuid())
   name           String
   publicEndpoint String           @map("public_endpoint")
-  listenPort     Int              @map("listen_port")
-  publicKey      String           @map("public_key")
-  privateKey     String?          @map("server_private_key")
-
+  publicKey      String?          @map("public_key")
+  serverPrivateKey String?        @map("server_private_key")
+  listenPort     Int              @default(51820) @map("listen_port")
   capacityLimit  Int              @map("capacity_limit")
-
   currentLoad    Int              @default(0) @map("current_load")
   secret         String           @default(uuid())
+  ipsecPsk       String?          @default("mikrogestor-psk") @map("ipsec_psk")
   isActive       Boolean          @default(true) @map("is_active")
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
@@ -375,23 +513,37 @@ enum VpnDeviceType {
   PC
 }
 
+enum VpnProtocol {
+  WIREGUARD
+  L2TP
+  SSTP
+}
+
 model VpnTunnel {
   id       String @id @default(uuid())
   tenantId String? @map("tenant_id")
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   // Identification
-  name String        @default("Router Principal")
-  type VpnDeviceType @default(ROUTER)
+  name     String        @default("Router Principal")
+  type     VpnDeviceType @default(ROUTER)
+  protocol VpnProtocol   @default(WIREGUARD)
 
   serverId         String    @map("server_id")
   server           VpnServer @relation(fields: [serverId], references: [id])
   routerIdentity   String?   @map("router_identity")
   internalIp       String    @map("internal_ip")
   subnetCidr       String    @default("32") @map("subnet_cidr")
-  clientPublicKey  String    @map("client_public_key")
-  clientPrivateKey String    @map("client_private_key")
+  
+  // WireGuard specific
+  clientPublicKey  String?   @map("client_public_key")
+  clientPrivateKey String?   @map("client_private_key")
   presharedKey     String?   @map("preshared_key")
+  
+  // Legacy specific (L2TP/SSTP)
+  vpnUsername      String?   @map("vpn_username")
+  vpnPassword      String?   @map("vpn_password")
+
   isActive         Boolean   @default(true) @map("is_active")
   lastHandshake    DateTime? @map("last_handshake")
 
@@ -456,11 +608,21 @@ model Customer {
   name    String
   cpfCnpj String         @unique @map("cpf_cnpj") // Rule: Unique per tenant
   phone   String?
-  address Json? // Rule: Flexible structure
+  zipCode         String?        @map("zip_code")
+  street          String?
+  number          String?
+  neighborhood    String?
+  city            String?
+  state           String?
+  complement      String?
   status  CustomerStatus @default(ACTIVE)
 
   planId String? @map("plan_id")
   plan   Plan?   @relation(fields: [planId], references: [id])
+
+  latitude        Float?
+  longitude       Float?
+  macAddress      String?        @map("mac_address")
 
   radiusPassword String? @map("radius_password")
   email          String? @unique
@@ -472,7 +634,12 @@ model Customer {
   updatedAt     DateTime              @updatedAt
   invoices      Invoice[]
   serviceOrders ServiceOrder[]
+  supportTickets SupportTicket[]
+  lastUnblockAt  DateTime?            @map("last_unblock_at")
   adjustments   FinancialAdjustment[]
+
+  nasId Int? @map("nas_id")
+  nas   Nas? @relation(fields: [nasId], references: [id])
 
   // Rule: Performance Index for fuzzy search (Rule 1)
   // Note: pg_trgm requires extension to be enabled in DB.
@@ -504,6 +671,23 @@ model Plan {
   customers Customer[]
 
   @@map("plans")
+}
+
+model IpPool {
+  id          String   @id @default(uuid())
+  name        String   // Ex: Pool_Clientes_Fibra
+  rangeStart  String   @map("range_start") // 192.168.10.1
+  rangeEnd    String   @map("range_end")   // 192.168.10.254
+  
+  description String?
+  
+  nasId Int? @map("nas_id")
+  nas   Nas? @relation(fields: [nasId], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("ip_pools")
 }
 
 enum CustomerStatus {
@@ -714,4 +898,69 @@ model TenantNotificationRead {
   @@unique([notificationId, customerId])
   @@index([customerId])
   @@map("tenant_notification_reads")
+}
+model SystemSettings {
+  id             String  @id @default("GLOBAL")
+  paymentGateway String  @default("ASAAS") @map("payment_gateway")
+  gatewayConfig  Json?   @map("gateway_config") // Dynamic credentials for MP, Asaas, etc.
+  
+  whatsappEnabled Boolean @default(true) @map("whatsapp_enabled")
+  
+  smtpConfig     Json?   @map("smtp_config")    // Dynamic SMTP credentials (host, port, user, pass, fromName, fromEmail)
+  
+  updatedAt DateTime @updatedAt
+  
+  @@map("system_settings")
+}
+model SupportTicket {
+  id          String   @id @default(uuid())
+  protocol    String   @unique
+  customerId  String   @map("customer_id")
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  
+  subject     String?  @default("Suporte via WhatsApp")
+  description String?
+  status      TicketStatus @default(OPEN)
+  priority    TicketPriority @default(MEDIUM)
+  
+  lastMessageAt DateTime @default(now()) @map("last_message_at")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  messages      SupportMessage[]
+  
+  @@map("support_tickets")
+}
+
+model SupportMessage {
+  id        String   @id @default(uuid())
+  ticketId  String   @map("ticket_id")
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  
+  sender    MessageSender
+  text      String
+  createdAt DateTime @default(now())
+
+  @@map("support_messages")
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  PENDING
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum MessageSender {
+  CUSTOMER
+  BOT
+  OPERATOR
 }

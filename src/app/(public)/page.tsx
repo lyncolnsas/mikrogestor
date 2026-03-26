@@ -35,6 +35,7 @@ export default async function LandingPage() {
                 <nav className="hidden md:flex items-center gap-8">
                     <NavLink href="#features">Recursos</NavLink>
                     <NavLink href="#infra">Infraestrutura</NavLink>
+                    <NavLink href="/guia">Manual</NavLink>
                     <NavLink href="#pricing">Planos</NavLink>
                 </nav>
 
@@ -47,7 +48,7 @@ export default async function LandingPage() {
 
                 {/* Features - Anti-Template Cards */}
                 {/* Features - Anti-Template Cards */}
-                <section id="features" className="py-24 px-6 max-w-7xl mx-auto">
+                <section id="features" className="py-24 px-6 max-w-7xl mx-auto scroll-mt-20">
                     <div className="grid md:grid-cols-3 gap-6">
                         {landingContent.features.list.map((feature, idx) => (
                             <FeatureBlock
@@ -57,6 +58,7 @@ export default async function LandingPage() {
                                 description={feature.description}
                                 color={feature.color}
                                 linkText={feature.linkText}
+                                href={feature.href}
                             />
                         ))}
                     </div>
@@ -67,7 +69,7 @@ export default async function LandingPage() {
 
                 {/* Automation Spotlight */}
                 {/* Automation Spotlight */}
-                <section id="infra" className="py-24 px-6 bg-slate-900 text-white rounded-[3rem] mx-6 mb-24 overflow-hidden relative">
+                <section id="infra" className="py-24 px-6 bg-slate-900 text-white rounded-[3rem] mx-6 mb-24 overflow-hidden relative scroll-mt-20">
                     <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-500/20 blur-[150px] -z-0 opacity-50" />
                     <div className="max-w-6xl mx-auto grid md:grid-cols-2 items-center gap-16 relative z-10">
                         <div className="space-y-6">
@@ -103,6 +105,47 @@ export default async function LandingPage() {
                         </div>
                     </div>
                 </section>
+
+                {/* Manual / Guia Rápido */}
+                <section id="manual" className="py-32 px-6 max-w-7xl mx-auto space-y-16 scroll-mt-20">
+                    <div className="flex flex-col items-center text-center space-y-4 max-w-3xl mx-auto">
+                        <Badge className="bg-indigo-500/10 text-indigo-600 border-indigo-200 uppercase font-black tracking-widest px-6 py-2 rounded-full mb-4">
+                            {landingContent.manual.badge}
+                        </Badge>
+                        <h2 className="text-4xl md:text-6xl font-black tracking-tighter text-slate-900 dark:text-white leading-[1.1]" dangerouslySetInnerHTML={{ __html: landingContent.manual.headline }} />
+                        <div className="pt-6">
+                            <Link href="/guia">
+                                <Button className="h-14 px-10 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-lg shadow-2xl shadow-indigo-500/30 gap-3 transition-all hover:scale-105">
+                                    Acessar Manual Completo <ChevronRight size={20} />
+                                </Button>
+                            </Link>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                        {landingContent.manual.steps.map((step, idx) => (
+                            <div key={idx} className="group relative">
+                                <div className="absolute -inset-2 bg-gradient-to-b from-indigo-500/20 to-transparent blur-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                                <div className="relative p-10 rounded-[3rem] bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 shadow-xl shadow-indigo-500/5 h-full flex flex-col justify-between hover:border-indigo-500/30 transition-all">
+                                    <div className="space-y-6">
+                                        <div className="w-14 h-14 rounded-2xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 flex items-center justify-center text-2xl font-black tracking-tighter transform group-hover:-rotate-6 transition-transform">
+                                            {step.number}
+                                        </div>
+                                        <h3 className="text-2xl font-black text-slate-900 dark:text-white">{step.title}</h3>
+                                        <p className="text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
+                                            {step.description}
+                                        </p>
+                                    </div>
+                                    <div className="mt-8 pt-8 border-t border-slate-50 dark:border-slate-800">
+                                        <span className="text-[11px] font-black text-indigo-600 uppercase tracking-widest block">
+                                            {step.detail}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </section>
             </main>
 
             {/* Footer */}
@@ -135,7 +178,7 @@ function NavLink({ href, children }: { href: string, children: React.ReactNode }
     )
 }
 
-function FeatureBlock({ icon, title, description, color, linkText }: { icon: React.ReactNode, title: string, description: string, color: 'blue' | 'emerald' | 'indigo', linkText: string }) {
+function FeatureBlock({ icon, title, description, color, linkText, href }: { icon: React.ReactNode, title: string, description: string, color: 'blue' | 'emerald' | 'indigo', linkText: string, href: string }) {
     return (
         <div className="p-8 pb-10 rounded-[2rem] bg-white dark:bg-slate-900 border hover:border-blue-500/50 hover:shadow-2xl hover:shadow-blue-500/10 transition-all group">
             <div className={cn(
@@ -151,9 +194,11 @@ function FeatureBlock({ icon, title, description, color, linkText }: { icon: Rea
                 {description}
             </p>
             <div className="pt-6">
-                <Button variant="ghost" className="p-0 h-auto hover:bg-transparent text-blue-600 font-bold gap-2">
-                    {linkText} <ArrowUpRight size={14} />
-                </Button>
+                <Link href={href}>
+                    <Button variant="ghost" className="p-0 h-auto hover:bg-transparent text-blue-600 font-bold gap-2">
+                        {linkText} <ArrowUpRight size={14} />
+                    </Button>
+                </Link>
             </div>
         </div>
     );

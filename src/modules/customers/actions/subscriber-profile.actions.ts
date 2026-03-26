@@ -40,15 +40,13 @@ export const updateSubscriberProfileAction = protectedAction(
             data: {
                 name: data.name,
                 phone: data.phone,
-                address: {
-                    street: data.street,
-                    number: data.number,
-                    neighborhood: data.neighborhood,
-                    city: data.city,
-                    state: data.state,
-                    zipCode: data.zipCode,
-                    email: data.email
-                } as any
+                email: data.email,
+                street: data.street,
+                number: data.number,
+                neighborhood: data.neighborhood,
+                city: data.city,
+                state: data.state,
+                zipCode: data.zipCode
             }
         });
 

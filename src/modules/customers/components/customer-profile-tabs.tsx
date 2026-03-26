@@ -18,6 +18,7 @@ import { getCustomerConsumptionAction } from "@/modules/customers/actions/custom
 import { Skeleton } from "@/components/ui/skeleton"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
+import { CustomerFinancialTab } from "./customer-financial-tab"
 
 type Tab = "connection" | "financial" | "logs" | "settings"
 
@@ -62,7 +63,7 @@ export function CustomerProfileTabs({ customerId }: CustomerProfileTabsProps) {
 
             <div className="min-h-[400px]">
                 {activeTab === "connection" && <ConnectionTab logs={logs} isLoading={isLoading} />}
-                {activeTab === "financial" && <div className="p-12 text-center text-muted-foreground italic">Módulo financeiro carregando...</div>}
+                {activeTab === "financial" && <CustomerFinancialTab customerId={customerId} />}
                 {activeTab === "logs" && <LogsTab logs={logs} isLoading={isLoading} />}
             </div>
         </div>

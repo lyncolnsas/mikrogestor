@@ -63,8 +63,11 @@ export class WireGuardService {
         const tunnels = await prisma.vpnTunnel.findMany();
 
         for (const tunnel of tunnels) {
-            // O servidor precisa apenas da Chave Pública do cliente para fechar o túnel.
-            await this.addPeer(tunnel.clientPublicKey, [tunnel.internalIp + '/32']);
+            // Skip non-WireGuard tunnels
+            if (!tunnel.clientPublicKey) continue;
+
+            const publicKey: string = tunnel.clientPublicKey;
+            await (this as any).addPeer(publicKey, [tunnel.internalIp + '/32']);
         }
     }
 

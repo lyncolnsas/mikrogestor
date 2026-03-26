@@ -4,6 +4,8 @@ import { LogOut, User, Home, HelpCircle, CreditCard } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { LogoutButton } from "@/components/subscriber/logout-button"
+import { GlobalNotificationListener } from "@/components/notifications/global-notification-listener"
+import { getMyTenantNotificationsAction, markTenantNotificationAsReadAction } from "@/modules/customers/actions/notification.actions"
 
 export default function SubscriberLayout({
     children,
@@ -35,7 +37,12 @@ export default function SubscriberLayout({
                     </Button>
                 </div>
             </header>
-
+ 
+            <GlobalNotificationListener
+                fetchAction={getMyTenantNotificationsAction as any}
+                markReadAction={async (id) => { await markTenantNotificationAsReadAction({ notificationId: id }); }}
+            />
+ 
             <main className="flex-1 px-3 pb-24 md:pb-8 overflow-x-hidden w-full">
                 {children}
             </main>

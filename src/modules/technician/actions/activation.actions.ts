@@ -1,8 +1,8 @@
-"use server";
+"use server"
 
-import { CustomerStatus } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { getCurrentTenant } from "@/lib/auth-utils.server";
+import { CustomerStatus } from "@prisma/client"
+import { prisma } from "@/lib/prisma"
+import { getCurrentTenant } from "@/lib/auth-utils.server"
 
 export async function activateCustomer(data: {
     customerId: string;
@@ -28,17 +28,15 @@ export async function activateCustomer(data: {
         });
         if (!customer) throw new Error("Cliente não encontrado");
 
-        // 3. Update Customer in DB
+        // 3. Update Customer in DB (Structured Address Data)
         await prisma.customer.update({
             where: { id: data.customerId },
             data: {
                 status: CustomerStatus.ACTIVE,
                 planId: data.planId,
-                address: {
-                    ...(typeof customer.address === 'object' ? customer.address : {}),
-                    location: data.location,
-                    mac: data.mac
-                }
+                latitude: data.location?.lat || null,
+                longitude: data.location?.lng || null,
+                macAddress: data.mac || null
             }
         });
 
@@ -48,10 +46,6 @@ export async function activateCustomer(data: {
             download: plan.download,
             remoteIpPool: plan.remoteIpPool
         });
-
-        // 5. MikroTik Kick (Optional CoA/PoD)
-        // In a real environment, the router IP would be fetched from the 'Nas' record of that area
-        // For simplicity, we assume one NAS if not specified, or use the VPN tunnel.
 
         const { revalidatePath } = await import("next/cache");
         revalidatePath("/technician/activation/new");

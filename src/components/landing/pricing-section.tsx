@@ -63,13 +63,13 @@ export function PricingSection({ plans }: PricingSectionProps) {
                                     <div className="flex items-baseline justify-center gap-1">
                                         <span className={`text-lg font-bold ${isPopular ? 'text-indigo-200/50' : 'text-slate-300'}`}>R$</span>
                                         <span className={`text-6xl font-black tracking-tighter ${isPopular ? 'text-white' : 'text-slate-900 dark:text-white'}`}>
-                                            {Number(plan.monthlyPrice).toLocaleString('pt-BR', { minimumFractionDigits: 0 })}
+                                            {Number(plan.monthlyPrice).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                         </span>
                                         <span className="text-lg font-bold text-slate-400">/mês</span>
                                     </div>
 
                                     <p className={`text-sm font-medium ${isPopular ? 'text-indigo-100/70' : 'text-slate-500'}`}>
-                                        Para provedores com até <span className={`font-black ${isPopular ? 'text-white' : 'text-slate-900'}`}>{plan.maxCustomers} assinantes</span>
+                                        Para provedores com até <span className={`font-black ${isPopular ? 'text-white' : 'text-slate-900 dark:text-white'}`}>{plan.maxCustomers} clientes</span>
                                     </p>
                                 </CardHeader>
 
@@ -77,33 +77,38 @@ export function PricingSection({ plans }: PricingSectionProps) {
                                     <div className={`my-8 h-px w-full ${isPopular ? 'bg-white/10' : 'bg-slate-100 dark:bg-slate-800'}`} />
 
                                     <ul className="space-y-4 mb-8 flex-1">
-                                        {plan.features && typeof plan.features === 'object' && Object.entries(plan.features as Record<string, unknown>).map(([key, value]) => {
-                                            if (!value) return null; // Skip false features
-                                            return (
-                                                <li key={key} className="flex items-start gap-3">
-                                                    <div className={`mt-0.5 rounded-full p-1 ${isPopular ? 'bg-indigo-500/20 text-indigo-300' : 'bg-emerald-500/10 text-emerald-600'}`}>
-                                                        <Check size={12} strokeWidth={4} />
-                                                    </div>
-                                                    <span className={`text-sm font-medium ${isPopular ? 'text-indigo-50' : 'text-slate-600 dark:text-slate-300'}`}>
-                                                        {key === 'max_vpn_nodes' ? (
-                                                            <span>Até <strong className={isPopular ? 'text-white' : 'text-slate-900'}>{String(value)} Concentradores</strong> VPN</span>
-                                                        ) : (
-                                                            <span className="capitalize">{key.replace(/_/g, ' ')}</span>
-                                                        )}
-                                                    </span>
-                                                </li>
-                                            );
-                                        })}
+                                        {[
+                                            "Gestão completa de clientes",
+                                            "Controle financeiro",
+                                            "Suporte técnico",
+                                            "Integração com Mikrotik",
+                                            "Área do cliente",
+                                            "Relatórios",
+                                            "Integração com bancos",
+                                            "Personalizações",
+                                            "Treinamento incluído"
+                                        ].map((feature) => (
+                                            <li key={feature} className="flex items-start gap-3">
+                                                <div className={`mt-0.5 rounded-full p-1 ${isPopular ? 'bg-indigo-500/20 text-indigo-300' : 'bg-emerald-500/10 text-emerald-600'}`}>
+                                                    <Check size={12} strokeWidth={4} />
+                                                </div>
+                                                <span className={`text-sm font-medium ${isPopular ? 'text-indigo-50' : 'text-slate-600 dark:text-slate-300'}`}>
+                                                    {feature}
+                                                </span>
+                                            </li>
+                                        ))}
 
-                                        {/* Static Features for padding */}
-                                        <li className="flex items-start gap-3">
-                                            <div className={`mt-0.5 rounded-full p-1 ${isPopular ? 'bg-indigo-500/20 text-indigo-300' : 'bg-emerald-500/10 text-emerald-600'}`}>
-                                                <Check size={12} strokeWidth={4} />
-                                            </div>
-                                            <span className={`text-sm font-medium ${isPopular ? 'text-indigo-50' : 'text-slate-600 dark:text-slate-300'}`}>
-                                                Painel Administrativo Completo
-                                            </span>
-                                        </li>
+                                        {/* Optional: Add custom feature if defined in DB for specific plan differentiation */}
+                                        {plan.features && typeof plan.features === 'object' && (plan.features as any).max_vpn_nodes && (
+                                            <li className="flex items-start gap-3">
+                                                <div className={`mt-0.5 rounded-full p-1 ${isPopular ? 'bg-indigo-500/20 text-indigo-300' : 'bg-emerald-500/10 text-emerald-600'}`}>
+                                                    <Check size={12} strokeWidth={4} />
+                                                </div>
+                                                <span className={`text-sm font-medium ${isPopular ? 'text-indigo-50' : 'text-slate-600 dark:text-slate-300'}`}>
+                                                    Até <strong className={isPopular ? 'text-white' : 'text-slate-900 dark:text-white'}>{(plan.features as any).max_vpn_nodes} Concentradores</strong> VPN
+                                                </span>
+                                            </li>
+                                        )}
                                     </ul>
 
                                     <Button

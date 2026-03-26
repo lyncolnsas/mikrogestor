@@ -7,6 +7,7 @@ import * as z from "zod";
 const createTunnelSchema = z.object({
     name: z.string().min(2, "Nome muito curto").max(30),
     type: z.enum(["MOBILE", "PC", "MIKROTIK"]),
+    protocol: z.enum(["WIREGUARD", "L2TP", "SSTP"]).default("WIREGUARD"),
     targetTenantId: z.string().optional(),
     bypassQuota: z.boolean().optional(),
 });
@@ -14,7 +15,7 @@ const createTunnelSchema = z.object({
 export const createVpnTunnelAction = protectedAction(
     ["SUPER_ADMIN", "ISP_ADMIN"],
     async (input, session) => {
-        const { name, type, targetTenantId, bypassQuota } = createTunnelSchema.parse(input);
+        const { name, type, protocol, targetTenantId, bypassQuota } = createTunnelSchema.parse(input);
 
         // Determine which tenant to create VPN for
         let tenantId: string;
@@ -47,7 +48,7 @@ export const createVpnTunnelAction = protectedAction(
             await VpnService.validateVpnQuota(tenantId);
         }
 
-        await VpnService.createDeviceTunnel(tenantId, name, type);
+        await VpnService.createDeviceTunnel(tenantId, name, type, undefined, protocol);
 
         const { revalidatePath } = await import("next/cache");
         revalidatePath("/(isp-panel)/mk-integration");

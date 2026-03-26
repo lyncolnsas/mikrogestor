@@ -49,11 +49,7 @@ export default async function ProfilePage() {
                     <CardTitle className="text-lg font-bold">Editar Informações</CardTitle>
                 </CardHeader>
                 <CardContent className="p-6 md:p-8">
-                    <SubscriberInfoForm initialData={{
-                        ...customer,
-                        phone: customer.phone || "",
-                        address: customer.address || {}
-                    }} />
+                    <SubscriberInfoForm initialData={customer as any} />
                 </CardContent>
             </Card>
         </div>

@@ -93,6 +93,22 @@ export class WhatsAppInstanceManager {
 
         sock.ev.on("creds.update", saveCreds);
 
+        // 5. Handle Incoming Messages (Interactive Bot)
+        sock.ev.on("messages.upsert", async (m) => {
+            if (m.type === "notify") {
+                for (const msg of m.messages) {
+                    if (!msg.key.fromMe && msg.message) {
+                        try {
+                            const { WhatsAppBotService } = await import("./services/whatsapp-bot.service");
+                            await WhatsAppBotService.handleIncoming(tenantId, msg);
+                        } catch (error) {
+                            this.logger.error(error as Error, `[WhatsAppBot] Erro ao processar mensagem no tenant ${tenantId}`);
+                        }
+                    }
+                }
+            }
+        });
+
         return sock;
     }
 

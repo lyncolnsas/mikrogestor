@@ -29,12 +29,12 @@ export const GET = withApiAuth(async (request, _params) => {
             cli_ativado: customer.status === 'ACTIVE' ? 's' : 'n',
             plano: customer.plan?.name || 'Sem Plano',
             valor: customer.plan?.price.toString() || '0.00',
-            endereco: (customer.address as any)?.street || '',
-            bairro: (customer.address as any)?.neighborhood || '',
-            cidade: (customer.address as any)?.city || '',
-            estado: (customer.address as any)?.state || '',
-            cep: (customer.address as any)?.zip || '',
-            numero: (customer.address as any)?.number || '',
+            endereco: customer.street || '',
+            bairro: customer.neighborhood || '',
+            cidade: customer.city || '',
+            estado: customer.state || '',
+            cep: customer.zipCode || '',
+            numero: customer.number || '',
             uuid: customer.id
         }));
 
@@ -68,14 +68,12 @@ export const POST = withApiAuth(async (request) => {
                 email: body.email || null,
                 phone: body.celular || body.telefone || null,
                 radiusPassword: body.senha || null,
-                address: {
-                    street: body.endereco || '',
-                    number: body.numero || '',
-                    neighborhood: body.bairro || '',
-                    city: body.cidade || '',
-                    state: body.estado || '',
-                    zip: body.cep || ''
-                },
+                street: body.endereco || '',
+                number: body.numero || '',
+                neighborhood: body.bairro || '',
+                city: body.cidade || '',
+                state: body.estado || '',
+                zipCode: body.cep || '',
                 status: 'ACTIVE'
             }
         });

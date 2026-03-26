@@ -1,25 +1,18 @@
-
+import { PaymentGatewayFactory } from "@/modules/financial/gateways/payment-gateway.factory";
+import { PaymentGatewayInterface } from "@/modules/financial/gateways/payment-gateway.interface";
 import { prisma } from "@/lib/prisma";
-import { AsaasAdapter } from "@/modules/financial/gateways/asaas.adapter";
 
 /**
  * Service to handle platform-level billing (Platform -> ISP/Tenant)
  */
 export class SaasBillingService {
-    private static adapter: AsaasAdapter | null = null;
+    private static gateway: PaymentGatewayInterface | null = null;
 
-    private static getAdapter() {
-        if (!this.adapter) {
-            const apiKey = process.env.ASAAS_MASTER_API_KEY;
-            const webhookToken = process.env.ASAAS_MASTER_WEBHOOK_TOKEN;
-
-            if (!apiKey) {
-                console.error("ASAAS_MASTER_API_KEY não configurada no ambiente.");
-            }
-
-            this.adapter = new AsaasAdapter(apiKey || "", webhookToken);
+    private static async getGateway() {
+        if (!this.gateway) {
+            this.gateway = await PaymentGatewayFactory.getSystemGateway();
         }
-        return this.adapter;
+        return this.gateway;
     }
 
     /**
@@ -50,9 +43,9 @@ export class SaasBillingService {
             return null;
         }
 
-        // 1. Criar cobrança no Asaas
-        const adapter = this.getAdapter();
-        const charge = await adapter.createPix(
+        // 1. Criar cobrança no Gateway
+        const gateway = await this.getGateway();
+        const charge = await gateway.createPix(
             amount,
             `Assinatura Mensal Mikrogestor - Plano ${plan.name}`,
             {
@@ -72,7 +65,7 @@ export class SaasBillingService {
 
         let asaasCustomerId = tenant.asaasCustomerId;
         if (!asaasCustomerId) {
-            asaasCustomerId = await adapter.getCustomerIdByDocument(tenant.slug);
+            asaasCustomerId = await gateway.getCustomerIdByDocument(tenant.slug);
             if (asaasCustomerId) {
                 await prisma.tenant.update({
                     where: { id: tenantId },
@@ -95,6 +88,18 @@ export class SaasBillingService {
             }
         });
 
+        // 4. Notificar via WhatsApp (Gateway do Sistema)
+        if (adminUser?.phone) {
+            const { WhatsAppNotificationService } = await import("@/modules/whatsapp/services/whatsapp-notification.service");
+            await WhatsAppNotificationService.sendSaasInvoice({
+                ispName: tenant.name,
+                phone: adminUser.phone,
+                value: `R$ ${amount.toFixed(2)}`,
+                dueDate: invoice.dueDate.toLocaleDateString("pt-BR"),
+                pixCode: invoice.pixQrCode || undefined,
+                paymentUrl: invoice.paymentUrl || undefined
+            });
+        }
         
         return invoice;
     }
@@ -136,6 +141,19 @@ export class SaasBillingService {
             })
         ]);
 
-        
+        // 4. Notificar Sucesso via WhatsApp
+        const tenant = await prisma.tenant.findUnique({
+            where: { id: invoice.tenantId },
+            include: { users: { where: { role: 'ISP_ADMIN' }, take: 1 } }
+        });
+
+        if (tenant?.users[0]?.phone) {
+            const { WhatsAppNotificationService } = await import("@/modules/whatsapp/services/whatsapp-notification.service");
+            await WhatsAppNotificationService.sendPaymentConfirmation("SYSTEM", {
+                customerName: tenant.name,
+                phone: tenant.users[0].phone,
+                value: `R$ ${invoice.amount.toFixed(2)}`
+            });
+        }
     }
 }

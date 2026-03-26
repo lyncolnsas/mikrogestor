@@ -30,7 +30,7 @@ export class MikrotikService {
     /**
      * Sincroniza um cliente localmente no MikroTik (Redundância OOB).
      */
-    static async upsertSecret(nasId: number, customer: { username: string; password: string; planName: string; remoteIpPool?: string }) {
+    static async upsertSecret(nasId: number, customer: { username: string; password: string; planName: string; remoteIpPool?: string; disabled?: boolean }) {
         const nas = await prisma.nas.findUnique({ where: { id: nasId } });
         if (!nas) throw new Error("NAS não encontrado");
 
@@ -47,7 +47,8 @@ export class MikrotikService {
                 password: customer.password,
                 profile: customer.planName,
                 service: "pppoe",
-                comment: "Sincronizado via MikroGestor SaaS"
+                comment: "Sincronizado via MikroGestor SaaS",
+                disabled: customer.disabled ? "yes" : "no"
             };
 
             if (customer.remoteIpPool) {
@@ -60,6 +61,28 @@ export class MikrotikService {
 
             await conn.write(command, params);
             // 
+        } finally {
+            conn.close();
+        }
+    }
+
+    /**
+     * Habilita ou desabilita um segredo local no MikroTik (Redundância OOB).
+     */
+    static async toggleSecret(nasId: number, username: string, disabled: boolean) {
+        const nas = await prisma.nas.findUnique({ where: { id: nasId } });
+        if (!nas) throw new Error("NAS não encontrado");
+
+        const conn = await this.getConnection(nas);
+        try {
+            const exists = await conn.write("/ppp/secret/print", [
+                "?.name=" + username
+            ]);
+
+            if ((exists as any[]).length > 0) {
+                const id = (exists as any[])[0][".id"];
+                await conn.write("/ppp/secret/set", { ".id": id, disabled: disabled ? "yes" : "no" } as any);
+            }
         } finally {
             conn.close();
         }
@@ -278,6 +301,64 @@ export class MikrotikService {
                 accept: 'yes',
                 port: '3799'
             } as any);
+
+            return { success: true };
+        } finally {
+            conn.close();
+        }
+    }
+
+    /**
+     * Provisiona a infraestrutura de Hotspot no roteador.
+     */
+    static async setupHotspot(nasId: number, options: {
+        interface: string;
+        hotspotAddress: string;
+        dnsName: string;
+        radiusServerIp: string;
+        radiusSecret: string;
+        portalUrl: string;
+    }) {
+        const nas = await prisma.nas.findUnique({ where: { id: nasId } });
+        if (!nas) throw new Error("NAS não encontrado");
+
+        const conn = await this.getConnection(nas);
+        try {
+            // 1. Configurar Radius para Hotspot
+            await conn.write('/radius/add', {
+                service: 'hotspot',
+                address: options.radiusServerIp,
+                secret: options.radiusSecret,
+                timeout: '3000ms',
+                comment: 'Hotspot Mikrogestor'
+            } as any).catch(() => null);
+
+            // 2. Walled Garden (Liberar o portal de cadastro)
+            const portalHost = new URL(options.portalUrl).hostname;
+            await conn.write('/ip/hotspot/walled-garden/add', {
+                dst_host: portalHost,
+                action: 'allow',
+                comment: 'Mikrogestor Portal'
+            } as any).catch(() => null);
+
+            // 3. Hotspot Server Profile
+            const profileName = 'hsp_mikrogestor';
+            await conn.write('/ip/hotspot/profile/add', {
+                name: profileName,
+                'hotspot-address': options.hotspotAddress.split('/')[0],
+                'dns-name': options.dnsName,
+                'login-by': 'http-chap,https,http-pap',
+                'use-radius': 'yes',
+                'radius-interim-update': '00:05:00'
+            } as any).catch(() => null);
+
+            // 4. Hotspot Server
+            await conn.write('/ip/hotspot/add', {
+                name: 'hs_mikrogestor',
+                interface: options.interface,
+                profile: profileName,
+                disabled: 'no'
+            } as any).catch(() => null);
 
             return { success: true };
         } finally {

@@ -32,15 +32,31 @@ export async function GET(req: Request) {
         include: {
             tenant: { select: { slug: true } }
         }
-    });
+    }) as any[];
 
-    // 3. Preparar Dados dos Peers do WireGuard
-    const peers = tunnels.map((t) => ({
-        publicKey: t.clientPublicKey,
-        allowedIps: `${t.internalIp}/32`,
-        presharedKey: t.presharedKey,
-        tenant: t.tenant?.slug || "system"
-    }));
+    // 3. Preparar Dados dos Peers (WireGuard e Legacy)
+    const peers = tunnels.map((t) => {
+        let decryptedPassword: string | null = null;
+        if (t.vpnPassword) {
+            try {
+                decryptedPassword = VpnKeyService.decrypt(t.vpnPassword);
+            } catch (e) {
+                console.error(`[VPN Sync] Erro ao descriptografar senha de ${t.vpnUsername}:`, e);
+            }
+        }
+
+        return {
+            id: t.id,
+            protocol: t.protocol,
+            publicKey: t.clientPublicKey, // WireGuard
+            allowedIps: `${t.internalIp}/32`, // WireGuard
+            presharedKey: t.presharedKey, // WireGuard
+            vpnUsername: t.vpnUsername, // L2TP/SSTP
+            vpnPassword: decryptedPassword, // L2TP/SSTP (Descriptografada)
+            internalIp: t.internalIp, // Compartilhado
+            tenant: t.tenant?.slug || "system"
+        };
+    });
 
     // 4. Decrypt server private key if available
     let decyptedPrivateKey: string | null = null;
@@ -56,6 +72,7 @@ export async function GET(req: Request) {
         serverPublicKey: server.publicKey,
         serverPrivateKey: decyptedPrivateKey,
         listenPort: server.listenPort,
+        ipsecPsk: (server as any).ipsecPsk, // Novo campo para L2TP/IPsec
         peers
     });
 }

@@ -63,44 +63,25 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
-import { createSaasNotificationAction, toggleSaasNotificationStatusAction } from "@/modules/saas/actions/notification.actions";
+import { createSaasNotificationAction, deleteSaasNotificationAction, toggleSaasNotificationStatusAction } from "@/modules/saas/actions/notification.actions";
 import { getTenantsAction } from "@/modules/saas/actions/saas-actions";
 import { Checkbox } from "@/components/ui/checkbox";
-// import type { NotificationType as NotificationTypeEnum, NotificationTarget as NotificationTargetEnum, SaasNotification } from "@prisma/client";
+import type { NotificationType as NotificationTypeEnum, NotificationTarget as NotificationTargetEnum, SaasNotification } from "@prisma/client";
 
-// Workaround for undefined Types/Enums from @prisma/client due to generation failure
 const NotificationType = {
     MODAL: "MODAL",
     TOAST: "TOAST",
     BANNER: "BANNER"
 } as const;
 
-type NotificationTypeEnum = keyof typeof NotificationType;
-
 const NotificationTarget = {
     ALL: "ALL",
     SPECIFIC: "SPECIFIC"
 } as const;
 
-type NotificationTargetEnum = keyof typeof NotificationTarget;
-
-interface SaasNotification {
-    id: string;
-    title: string;
-    message: string;
-    imageUrl: string | null;
-    type: NotificationTypeEnum;
-    target: NotificationTargetEnum;
-    targetIds?: string[];
-    isActive: boolean;
-    createdAt: Date;
-    expiresAt: Date | null;
-    // SaasNotification doesn't have tenantId field like TenantNotification might for ownership, but depends on schema
-}
-
 const formSchema = z.object({
     title: z.string().min(3, "O título deve ter pelo menos 3 caracteres"),
-    message: z.string().min(10, "A mensagem deve ter pelo menos 10 caracteres"),
+    message: z.string().min(3, "A mensagem deve ter pelo menos 3 caracteres"),
     imageUrl: z.string().optional(),
     type: z.nativeEnum(NotificationType),
     target: z.nativeEnum(NotificationTarget),
@@ -115,6 +96,7 @@ export function SaasNotificationManager({ initialNotifications }: SaasNotificati
     const [notifications, setNotifications] = useState(initialNotifications);
     const [tenants, setTenants] = useState<any[]>([]);
     const [open, setOpen] = useState(false);
+    const [showLimitModal, setShowLimitModal] = useState(false);
     const [isPending, startTransition] = useTransition();
     const [isUploading, setIsUploading] = useState(false);
 
@@ -141,6 +123,12 @@ export function SaasNotificationManager({ initialNotifications }: SaasNotificati
     });
 
     async function onSubmit(values: z.infer<typeof formSchema>) {
+        if (notifications.length >= 10) {
+            setOpen(false); // Close the creation modal
+            setShowLimitModal(true);
+            return;
+        }
+
         startTransition(async () => {
             const result = await createSaasNotificationAction(values);
             if (result.error) {
@@ -149,25 +137,30 @@ export function SaasNotificationManager({ initialNotifications }: SaasNotificati
             }
             if (result.data) {
                 toast.success("Notificação enviada com sucesso!");
-                setNotifications([
-                    { ...result.data, _count: { reads: 0 } },
-                    ...notifications
-                ]);
+                const newNotif = {
+                    ...result.data,
+                    _count: { reads: 0 }
+                } as any;
+                
+                setNotifications([newNotif, ...notifications]);
                 setOpen(false);
                 form.reset();
             }
         });
     }
 
-    async function toggleStatus(id: string, currentStatus: boolean) {
+    async function handleDelete(id: string) {
+        if (!confirm("Tem certeza que deseja excluir permanentemente esta notificação?")) return;
+
         startTransition(async () => {
-            const result = await toggleSaasNotificationStatusAction({ id, isActive: !currentStatus });
+            const result = await deleteSaasNotificationAction({ id });
             if (result.data) {
-                setNotifications(notifications.map(n => n.id === id ? { ...n, isActive: result.data!.isActive } : n));
-                toast.success(`Notificação ${!currentStatus ? 'ativada' : 'desativada'}`);
+                setNotifications(notifications.filter(n => n.id !== id));
+                toast.success("Notificação excluída.");
             }
         });
     }
+
 
     async function handleUpload(file: File) {
         setIsUploading(true);
@@ -187,6 +180,7 @@ export function SaasNotificationManager({ initialNotifications }: SaasNotificati
             toast.success("Imagem enviada!");
         } catch (error) {
             toast.error("Erro ao enviar imagem.");
+            form.setValue("imageUrl", ""); // Reset on error
         } finally {
             setIsUploading(false);
         }
@@ -283,12 +277,11 @@ export function SaasNotificationManager({ initialNotifications }: SaasNotificati
                                             <FormControl>
                                                 <div className="space-y-2">
                                                     {field.value ? (
-                                                        <div className="relative aspect-video rounded-lg overflow-hidden border bg-muted group">
-                                                            <Image
+                                                        <div className="relative aspect-video rounded-lg overflow-hidden border bg-muted group flex items-center justify-center">
+                                                            <img
                                                                 src={field.value}
                                                                 alt="Preview"
-                                                                fill
-                                                                className="object-cover"
+                                                                className="max-h-full max-w-full object-contain"
                                                             />
                                                             <button
                                                                 type="button"
@@ -381,9 +374,13 @@ export function SaasNotificationManager({ initialNotifications }: SaasNotificati
                                     />
                                 )}
                                 <DialogFooter>
-                                    <Button type="submit" disabled={isPending}>
-                                        {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Bell className="mr-2 h-4 w-4" />}
-                                        Enviar Notificação
+                                    <Button type="submit" disabled={isPending || isUploading}>
+                                        {isPending || isUploading ? (
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        ) : (
+                                            <Bell className="mr-2 h-4 w-4" />
+                                        )}
+                                        {isUploading ? "Enviando Imagem..." : "Enviar Notificação"}
                                     </Button>
                                 </DialogFooter>
                             </form>
@@ -453,10 +450,11 @@ export function SaasNotificationManager({ initialNotifications }: SaasNotificati
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
-                                                onClick={() => toggleStatus(n.id, n.isActive)}
-                                                className="text-muted-foreground hover:text-destructive"
+                                                onClick={() => handleDelete(n.id)}
+                                                className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                                title="Excluir Notificação"
                                             >
-                                                {n.isActive ? <Trash2 className="h-4 w-4" /> : <Plus className="h-4 w-4 rotate-45" />}
+                                                <Trash2 className="h-4 w-4" />
                                             </Button>
                                         </TableCell>
                                     </TableRow>
@@ -466,6 +464,27 @@ export function SaasNotificationManager({ initialNotifications }: SaasNotificati
                     </Table>
                 </CardContent>
             </Card>
+
+            {/* Modal de Limite Atingido */}
+            <Dialog open={showLimitModal} onOpenChange={setShowLimitModal}>
+                <DialogContent>
+                    <DialogHeader>
+                        <div className="mx-auto h-12 w-12 rounded-full bg-amber-100 flex items-center justify-center mb-4">
+                            <AlertTriangle className="h-6 w-6 text-amber-600" />
+                        </div>
+                        <DialogTitle className="text-center text-xl">Limite De Notificações Atingido</DialogTitle>
+                        <DialogDescription className="text-center pt-2">
+                            Você alcançou o limite máximo de <strong>10 notificações</strong>. 
+                            Para criar um novo comunicado, você precisa excluir pelo menos um registro do seu histórico.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="sm:justify-center mt-4">
+                        <Button onClick={() => setShowLimitModal(false)} variant="outline" className="w-full sm:w-auto">
+                            Entendido, vou excluir
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

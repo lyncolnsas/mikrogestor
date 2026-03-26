@@ -2,23 +2,33 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { storage } from "@/lib/storage";
 import path from "path";
+import sharp from "sharp";
 
 export async function POST(request: NextRequest) {
     try {
-        // 1. Authenticate via Header (x-api-key)
+        // 1. Authenticate via Header (x-api-key) OR Session
         const apiKey = request.headers.get("x-api-key");
-        
-        if (!apiKey) {
-            return NextResponse.json({ error: "Unauthorized: Missing API Key" }, { status: 401 });
+        let user;
+
+        if (apiKey) {
+            user = await prisma.user.findUnique({
+                where: { apiKey },
+                include: { tenant: true }
+            });
+        } else {
+            // Fallback: Check if user is logged in via session
+            const { getSession } = await import("@/lib/auth/session");
+            const session = await getSession();
+            if (session?.userId) {
+                user = await prisma.user.findUnique({
+                    where: { id: session.userId },
+                    include: { tenant: true }
+                });
+            }
         }
-
-        const user = await prisma.user.findUnique({
-            where: { apiKey },
-            include: { tenant: true }
-        });
-
+        
         if (!user) {
-            return NextResponse.json({ error: "Invalid API Key" }, { status: 401 });
+            return NextResponse.json({ error: "Unauthorized: Missing or Invalid Authentication" }, { status: 401 });
         }
 
         // 2. Extract and Validate File
@@ -42,7 +52,29 @@ export async function POST(request: NextRequest) {
         // 3. Storage Logic (Via Abstraction Layer)
         const tenantId = user.tenantId || "default";
         const bytes = await file.arrayBuffer();
-        const buffer = Buffer.from(bytes);
+        let buffer = Buffer.from(bytes);
+
+        // Security: Re-encode image using Sharp to strip malicious metadata/hidden code
+        try {
+            const image = sharp(buffer);
+            const metadata = await image.metadata();
+            
+            // Re-encode to the same format but sanitized
+            // This strips EXIF, XMP, and other potentially dangerous metadata chunks
+            if (metadata.format === "jpeg" || metadata.format === "jpg") {
+                buffer = await image.jpeg({ quality: 85, mozjpeg: true }).toBuffer() as any;
+            } else if (metadata.format === "png") {
+                buffer = await image.png({ quality: 85, compressionLevel: 9 }).toBuffer() as any;
+            } else if (metadata.format === "webp") {
+                buffer = await image.webp({ quality: 85 }).toBuffer() as any;
+            } else {
+                // Default fallback: convert to WebP for maximum security/compression
+                buffer = await image.webp({ quality: 85 }).toBuffer() as any;
+            }
+        } catch (err) {
+            console.error("Image processing failed (possible malicious file):", err);
+            return NextResponse.json({ error: "Invalid or corrupted image file" }, { status: 400 });
+        }
 
         const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
         const ext = path.extname(file.name) || ".png";

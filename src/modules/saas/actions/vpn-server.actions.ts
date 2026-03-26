@@ -11,6 +11,7 @@ const vpnServerSchema = z.object({
     listenPort: z.coerce.number().int().min(1).max(65535).default(51820),
     publicKey: z.string().optional(),
     capacityLimit: z.coerce.number().int().min(1, "Capacidade mínima é 1"),
+    ipsecPsk: z.string().optional(),
 });
 
 export type VpnServerInput = z.infer<typeof vpnServerSchema>;
@@ -33,8 +34,9 @@ export const createVpnServerAction = protectedAction(
                 listenPort: data.listenPort,
                 publicKey: data.publicKey || keys.publicKey, // Usa chave gerada se não fornecida
                 capacityLimit: data.capacityLimit,
+                ipsecPsk: data.ipsecPsk || "mikrogestor-psk", // Default PSK for L2TP
                 isActive: true
-            }
+            } as any
         });
 
         revalidatePath("/saas-admin/vpn-servers");
@@ -97,7 +99,7 @@ export const regenerateVpnServerKeysAction = protectedAction(
             data: {
                 publicKey: keys.publicKey,
                 privateKey: keys.privateKey,
-            }
+            } as any
         });
 
 
@@ -203,8 +205,9 @@ export const updateVpnServerAction = protectedAction(
                 publicEndpoint: data.publicEndpoint,
                 listenPort: data.listenPort,
                 capacityLimit: data.capacityLimit,
+                ipsecPsk: data.ipsecPsk,
                 // publicKey: data.publicKey <-- Don't update keys here to avoid accidental breakage
-            }
+            } as any
         });
 
         revalidatePath("/saas-admin/vpn-servers");

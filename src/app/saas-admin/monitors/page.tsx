@@ -53,40 +53,40 @@ export default function MonitorsPage() {
     const services = data ? [
         {
             name: "WhatsApp SaaS Gateway",
-            status: data.whatsapp.status,
-            uptime: data.whatsapp.uptime,
-            latency: data.whatsapp.latency,
+            status: data?.whatsapp?.status || "OFFLINE",
+            uptime: data?.whatsapp?.uptime || "0%",
+            latency: data?.whatsapp?.latency || "0ms",
             icon: MessageSquare,
-            color: data.whatsapp.status === "ONLINE" ? "emerald" : "rose",
+            color: data?.whatsapp?.status === "ONLINE" ? "emerald" : "rose",
             description: "Serviço de envio de notificações globais e cobranças."
         },
         {
             name: "RADIUS Auth Server",
-            status: data.radius.status,
-            uptime: data.radius.uptime,
-            latency: data.radius.latency,
-            meta: `${data.radius.activeSessions} Sessões Ativas`,
+            status: data?.radius?.status || "OFFLINE",
+            uptime: data?.radius?.uptime || "0%",
+            latency: data?.radius?.latency || "0ms",
+            meta: `${data?.radius?.activeSessions || 0} Sessões Ativas`,
             icon: Wifi,
             color: "blue",
             description: "Autenticação centralizada para conexões ISP."
         },
         {
             name: "Main Database (Prisma)",
-            status: data.database.status,
-            uptime: data.database.uptime,
-            latency: data.database.latency,
+            status: data?.database?.status || "OFFLINE",
+            uptime: data?.database?.uptime || "0%",
+            latency: data?.database?.latency || "0ms",
             icon: Database,
             color: "emerald",
             description: "Banco de dados relacional (Tenancy-Aware)."
         },
         {
             name: "VPN Provisioning Manager",
-            status: data.vpn.status,
-            uptime: data.vpn.uptime,
-            latency: data.vpn.latency,
-            meta: `${data.vpn.connectedPeers} Nodos Conectados`,
+            status: data?.vpn?.status || "OFFLINE",
+            uptime: data?.vpn?.uptime || "0%",
+            latency: data?.vpn?.latency || "0ms",
+            meta: `${data?.vpn?.connectedPeers || 0} Nodos Conectados`,
             icon: ShieldCheck,
-            color: data.vpn.status === "ONLINE" ? "emerald" : "amber",
+            color: data?.vpn?.status === "ONLINE" ? "emerald" : "amber",
             description: "Orquestrador de nodos WireGuard.",
             action: (
                 <Button variant="link" className="h-4 p-0 text-xs" onClick={loadPeers}>

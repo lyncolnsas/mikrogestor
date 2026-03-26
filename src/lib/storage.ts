@@ -14,13 +14,18 @@ interface StorageDriver {
  */
 class LocalStorageDriver implements StorageDriver {
   async upload(file: Buffer, filename: string, tenantId: string): Promise<string> {
-    const uploadDir = join(process.cwd(), "public", "uploads", tenantId);
+    const uploadDir = path.resolve(process.cwd(), "public", "uploads", tenantId);
+    console.log(`[Storage] Uploading to: ${uploadDir}`);
+    
     await mkdir(uploadDir, { recursive: true });
     
     const filepath = join(uploadDir, filename);
     await writeFile(filepath, file);
     
-    return `/uploads/${tenantId}/${filename}`;
+    const relativeUrl = `/api/uploads/${tenantId}/${filename}`;
+    console.log(`[Storage] File saved. Public URL: ${relativeUrl}`);
+    
+    return relativeUrl;
   }
 }
 

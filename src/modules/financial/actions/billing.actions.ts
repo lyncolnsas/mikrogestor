@@ -11,6 +11,9 @@ export interface GatewayConfig {
     asaas?: { enabled: boolean; apiKey?: string; methods?: GatewayMethod[]; webhookToken?: string };
     mercadopago?: { enabled: boolean; accessToken?: string; methods?: GatewayMethod[] };
     pagseguro?: { enabled: boolean; token?: string; email?: string; methods?: GatewayMethod[] };
+    efi?: { enabled: boolean; clientId?: string; clientSecret?: string; sandbox: boolean; certificate?: string; methods?: GatewayMethod[] };
+    iugu?: { enabled: boolean; apiKey?: string; accountId?: string; methods?: GatewayMethod[] };
+    galaxpay?: { enabled: boolean; hash?: string; id?: string; methods?: GatewayMethod[] };
     gatewayIdx?: string;
 }
 
@@ -56,7 +59,27 @@ const configSchema = z.object({
         pagseguro: z.object({
             enabled: z.boolean(),
             token: z.string().optional(),
-            email: z.string().optional(), // e-mail de autenticação
+            email: z.string().optional(),
+            methods: z.array(z.string()).optional()
+        }).optional(),
+        efi: z.object({
+            enabled: z.boolean(),
+            clientId: z.string().optional(),
+            clientSecret: z.string().optional(),
+            certificate: z.string().optional(), // base64 cert
+            sandbox: z.boolean().default(false),
+            methods: z.array(z.string()).optional()
+        }).optional(),
+        iugu: z.object({
+            enabled: z.boolean(),
+            apiKey: z.string().optional(),
+            accountId: z.string().optional(),
+            methods: z.array(z.string()).optional()
+        }).optional(),
+        galaxpay: z.object({
+            enabled: z.boolean(),
+            hash: z.string().optional(),
+            id: z.string().optional(),
             methods: z.array(z.string()).optional()
         }).optional(),
     }).optional(),

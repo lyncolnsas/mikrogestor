@@ -16,11 +16,20 @@ export async function getDashboardStats() {
         const lastMonthStart = startOfMonth(subMonths(now, 1));
         const lastMonthEnd = endOfMonth(subMonths(now, 1));
 
-        // 1. Clientes Ativos
-        const activeCustomersResult = await db.$queryRaw`
+        // 1. Clientes Online (Sessões Radius Ativas filtradas por Tenant)
+        const tenantPrefix = `t${context.tenantId}_%`;
+        const onlineCustomersResult = await db.$queryRaw`
+            SELECT COUNT(DISTINCT username)::int as count 
+            FROM radacct 
+            WHERE acctstoptime IS NULL AND username LIKE ${tenantPrefix}
+        ` as any[];
+        const onlineCustomers = onlineCustomersResult[0]?.count || 0;
+
+        // 1.1 Clientes Ativos (Contrato)
+        const activeContractsResult = await db.$queryRaw`
             SELECT COUNT(*)::int as count FROM customers WHERE status = 'ACTIVE'
         ` as any[];
-        const activeCustomers = activeCustomersResult[0]?.count || 0;
+        const totalActive = activeContractsResult[0]?.count || 0;
 
         // 1.1 Clientes Ativos (Delta)
         const newCustomersThisMonthResult = await db.$queryRaw`
@@ -87,7 +96,8 @@ export async function getDashboardStats() {
         const activeNas = nasCount;
 
         return {
-            activeCustomers: activeCustomers.toLocaleString(),
+            activeCustomers: onlineCustomers.toLocaleString(),
+            totalActive: totalActive.toLocaleString(),
             monthlyRevenue: monthlyRevenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
             overdueAmount: overdueAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
             openOrders: openOrders.toString(),
@@ -304,7 +314,7 @@ export async function getNetworkStatusAction() {
             server: tunnel.server.name,
             ip: tunnel.internalIp
         } : null,
-        nas: nasList.map(n => ({
+        nas: nasList.map((n: any) => ({
             id: n.id,
             name: n.shortname || n.nasname,
             status: isTunnelOnline ? "online" : "offline", // Since NAS is behind the tunnel for now

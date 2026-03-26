@@ -110,25 +110,41 @@ export const getRevenueAction = protectedAction(
                 const date = new Date();
                 date.setMonth(date.getMonth() - (5 - i));
                 const monthName = months[date.getMonth()];
-                chartMap.set(monthName, { name: monthName, total: 0, paid: 0 });
+                chartMap.set(monthName, { name: monthName, previsto: 0, realizado: 0 });
             }
 
-            invoices.forEach(inv => {
+            invoices.forEach((inv: any) => {
                 const monthName = months[inv.createdAt.getMonth()];
                 if (chartMap.has(monthName)) {
                     const entry = chartMap.get(monthName);
-                    entry.total += Number(inv.total);
+                    entry.previsto += Number(inv.total);
                     if (inv.status === "PAID") {
-                        entry.paid += Number(inv.total);
+                        entry.realizado += Number(inv.total);
                     }
                 }
             });
+
+            const methodStats = await db.invoice.groupBy({
+                by: ['billingType'],
+                _count: true,
+                where: {
+                    status: { notIn: ["DRAFT", "CANCELLED"] }
+                }
+            });
+
+            const totalCount = methodStats.reduce((sum: number, stat: any) => sum + stat._count, 0);
+            const mix = {
+                pix: Math.round(((methodStats.find((s: any) => s.billingType === "PIX")?._count || 0) / (totalCount || 1)) * 100),
+                boleto: Math.round(((methodStats.find((s: any) => s.billingType === "BOLETO")?._count || 0) / (totalCount || 1)) * 100),
+                card: Math.round(((methodStats.find((s: any) => s.billingType === "CREDIT_CARD")?._count || 0) / (totalCount || 1)) * 100)
+            };
 
             return {
                 totalRevenue: Number(totals._sum.total || 0),
                 paidRevenue: Number(paid._sum.total || 0),
                 overdueRevenue: Number(overdue._sum.total || 0),
-                chart: Array.from(chartMap.values())
+                chart: Array.from(chartMap.values()),
+                mix
             };
         });
     }
@@ -161,9 +177,9 @@ export const getTopDebtorsAction = protectedAction(
                 take: 10
             });
 
-            return debtors.map(d => {
-                const totalOverdue = d.invoices.reduce((sum, inv) => sum + Number(inv.total), 0);
-                const oldestInvoice = d.invoices.sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime())[0];
+            return debtors.map((d: any) => {
+                const totalOverdue = d.invoices.reduce((sum: number, inv: any) => sum + Number(inv.total), 0);
+                const oldestInvoice = d.invoices.sort((a: any, b: any) => a.dueDate.getTime() - b.dueDate.getTime())[0];
                 const daysOverdue = Math.floor((new Date().getTime() - oldestInvoice.dueDate.getTime()) / (1000 * 60 * 60 * 24));
 
                 return {
@@ -173,7 +189,7 @@ export const getTopDebtorsAction = protectedAction(
                     amount: totalOverdue,
                     days: daysOverdue > 0 ? daysOverdue : 0
                 };
-            }).sort((a, b) => b.amount - a.amount);
+            }).sort((a: any, b: any) => b.amount - a.amount);
         });
     }
 );
@@ -201,7 +217,7 @@ export const getInvoicesAction = protectedAction(
             });
 
             // Serialization for client
-            return invoices.map(inv => ({
+            return invoices.map((inv: any) => ({
                 ...inv,
                 total: Number(inv.total),
                 createdAt: inv.createdAt.toISOString(),
@@ -233,12 +249,20 @@ export const getInvoicePixAction = protectedAction(
                 throw new Error("Gateway not configured");
             }
 
-            // Factory
+            // 1. Obter o Tenant para saber qual o Gateway Ativo
+            const tenant = await db.tenant.findUnique({ where: { id: (db as any).tenantId } }) as any;
+            const gatewayType = (tenant?.paymentGateway || "ASAAS") as any;
+
+            // 2. Factory de Gateway
             const { PaymentGatewayFactory } = await import("../gateways/payment-gateway.factory");
-            const gateway = PaymentGatewayFactory.create({
-                ...JSON.parse(JSON.stringify(config.gatewayCredentials)), // Ensure plain object
-                provider: (config.gatewayCredentials as { provider: string }).provider
-            });
+            
+            // Mapear credenciais dinamicamente baseado no provider configurado no financeiro do tenant
+            const creds = config.gatewayCredentials as any;
+            const gatewayCreds = gatewayType === "MERCADO_PAGO" 
+                ? { accessToken: creds.mercadoPago?.accessToken }
+                : { apiKey: creds.asaas?.apiKey, webhookToken: creds.asaas?.webhookToken };
+
+            const gateway = PaymentGatewayFactory.getGateway(gatewayType, gatewayCreds);
 
             // Create Pix
             // In a real app, check if paymentId exists and status is PENDING to reuse.
@@ -255,5 +279,89 @@ export const getInvoicePixAction = protectedAction(
                 qrCodeBase64: pix.encoded_image || pix.qr_code_base64
             };
         });
+    }
+);
+/**
+ * Action to get a single invoice with full details (customer, items) for printing/PDF
+ */
+export const getInvoiceForPrintAction = protectedAction(
+    ["ISP_ADMIN", "SUBSCRIBER"],
+    async (invoiceId: string) => {
+        return await withTenantDb(async (db: any) => {
+            const invoice = await db.invoice.findUnique({
+                where: { id: invoiceId },
+                include: {
+                    customer: true,
+                    items: true
+                }
+            });
+
+            if (!invoice) return null;
+
+            const config = await db.financialConfig.findFirst({
+                where: { tenantId: invoice.tenantId }
+            });
+
+            // Mock implementation for boleto specific fields if not present
+            // In a production app, these would be generated by a library like 'boleto.js'
+            const boletoData = {
+                banco: config?.bankName || "BB",
+                beneficiario: {
+                    nome: config?.beneficiaryName || "PROVEDOR DE INTERNET LTDA",
+                    documento: config?.beneficiaryDocument || "00.000.000/0001-00",
+                    agencia: config?.bankAgency || "1234",
+                    conta: config?.bankAccount || "12345",
+                    dvConta: config?.bankAccountDV || "0"
+                },
+                linhaDigitavel: "00190.00009 02741.512228 60007.412176 9 86510000001000",
+                barcodeValue: "00199865100000010000000002741512226000741217",
+                nossoNumero: invoice.id.slice(0, 8),
+                vencimento: invoice.dueDate,
+                emissao: invoice.createdAt,
+                valor: Number(invoice.total),
+                sacado: {
+                    nome: invoice.customer?.fullName || "Cliente Final",
+                    documento: invoice.customer?.document || "000.000.000-00",
+                    endereco: invoice.customer?.address || "Rua Principal, 100"
+                }
+            };
+
+            return {
+                invoice,
+                boletoData
+            };
+        });
+    }
+);
+
+/**
+ * Gets all invoices for a specific customer
+ */
+export const getCustomerInvoicesAction = protectedAction(
+    ["ISP_ADMIN", "SUPER_ADMIN"],
+    async (customerId: string) => {
+        try {
+            const result = await withTenantDb(async (db) => {
+                const invoices = await db.invoice.findMany({
+                    where: { customerId },
+                    orderBy: { dueDate: "desc" }
+                });
+
+                // Serialization for client
+                return invoices.map((inv: any) => ({
+                    ...inv,
+                    total: Number(inv.total),
+                    createdAt: inv.createdAt.toISOString(),
+                    updatedAt: inv.updatedAt.toISOString(),
+                    dueDate: inv.dueDate.toISOString(),
+                    paidAt: inv.paidAt?.toISOString() || null
+                }));
+            });
+
+            return result;
+        } catch (error: any) {
+            console.error("[getCustomerInvoicesAction] Error:", error);
+            throw error;
+        }
     }
 );

@@ -49,13 +49,13 @@ export function HeroSection() {
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: 0.4 }}
-                    className="flex flex-col sm:flex-row justify-center gap-4 pt-4"
+                    className="flex justify-center pt-4"
                 >
-                    <Button size="lg" className="h-14 px-8 rounded-full text-lg font-bold bg-blue-600 hover:bg-blue-700 shadow-xl shadow-blue-500/30 gap-3">
-                        <NextLink href="/auth/register">{landingContent.hero.ctaCheck}</NextLink> <ArrowRight size={20} />
-                    </Button>
-                    <Button size="lg" variant="outline" className="h-14 px-8 rounded-full text-lg font-bold border-2 hover:bg-slate-50 gap-3">
-                        {landingContent.hero.ctaDemo} <MousePointer2 size={20} />
+                    <Button size="lg" className="h-16 px-12 rounded-full text-xl font-black bg-blue-600 hover:bg-blue-700 shadow-2xl shadow-blue-500/40 gap-4 transition-all hover:scale-[1.05] active:scale-95 group">
+                        <NextLink href="/auth/register" className="flex items-center gap-3">
+                            {landingContent.hero.ctaCheck}
+                            <ArrowRight size={24} className="transition-transform group-hover:translate-x-1" />
+                        </NextLink>
                     </Button>
                 </motion.div>
 

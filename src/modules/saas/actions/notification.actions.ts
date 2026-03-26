@@ -3,29 +3,17 @@
 import { prisma } from "@/lib/prisma";
 import { protectedAction } from "@/lib/api/action-wrapper";
 import * as z from "zod";
-// import { NotificationTarget, NotificationType } from "@prisma/client";
-
-// Workaround for undefined Enums from @prisma/client if generation failed
-const NotificationType = {
-    MODAL: "MODAL",
-    TOAST: "TOAST",
-    BANNER: "BANNER"
-} as const;
-
-const NotificationTarget = {
-    ALL: "ALL",
-    SPECIFIC: "SPECIFIC"
-} as const;
+import { NotificationTarget, NotificationType } from "@prisma/client";
 
 // Schema for creating a notification
 const createNotificationSchema = z.object({
     title: z.string().min(3, "O título deve ter pelo menos 3 caracteres"),
-    message: z.string().min(10, "A mensagem deve ter pelo menos 10 caracteres"),
-    imageUrl: z.string().optional(),
+    message: z.string().min(3, "A mensagem deve ter pelo menos 3 caracteres"),
+    imageUrl: z.string().nullable().optional(),
     type: z.nativeEnum(NotificationType),
     target: z.nativeEnum(NotificationTarget),
-    targetIds: z.array(z.string()).optional(), // TenantIDs if specific
-    expiresAt: z.date().optional(),
+    targetIds: z.union([z.array(z.string()), z.string()]).optional(), // Handle both single string or array from some forms if needed
+    expiresAt: z.union([z.date(), z.string()]).optional(), // Allow ISO string as it might be serialized in server actions
 });
 
 /**
@@ -34,25 +22,37 @@ const createNotificationSchema = z.object({
 export const createSaasNotificationAction = protectedAction(
     ["SUPER_ADMIN"],
     async (input, session) => {
+        // Check limit
+        const count = await prisma.saasNotification.count();
+        if (count >= 10) {
+            return { error: "LIMITE_ATINGIDO: Você atingiu o limite de 10 notificações. Exclua alguma para continuar." };
+        }
+
         const data = createNotificationSchema.parse(input);
+        
+        const finalTargetIds = Array.isArray(data.targetIds) ? data.targetIds : (data.targetIds ? [data.targetIds] : []);
+        // Handle potential string to Date conversion from Server Action serialization
+        const finalExpiresAt = typeof data.expiresAt === 'string' ? new Date(data.expiresAt) : data.expiresAt;
 
         const notification = await prisma.saasNotification.create({
             data: {
                 title: data.title,
                 message: data.message,
-                imageUrl: data.imageUrl,
+                imageUrl: data.imageUrl || null, // Convert "" to null
                 type: data.type,
                 target: data.target,
                 // @ts-ignore - Prisma type sync issue
-                targetIds: data.targetIds || [],
-                expiresAt: data.expiresAt,
+                targetIds: finalTargetIds,
+                expiresAt: finalExpiresAt,
                 isActive: true,
             },
         });
 
-        
+        // Revalidate history and the public listener
+        const { revalidatePath } = await import("next/cache");
+        revalidatePath("/saas-admin/notifications");
+        revalidatePath("/(isp-panel)/layout");
 
-        // Revalidate paths if necessary, but this is global data usually fetched on mount
         return notification;
     }
 );
@@ -166,5 +166,24 @@ export const toggleSaasNotificationStatusAction = protectedAction(
             where: { id: input.id },
             data: { isActive: input.isActive }
         });
+    }
+);
+
+/**
+ * Permanently deletes a notification (SaaS Admin)
+ */
+export const deleteSaasNotificationAction = protectedAction(
+    ["SUPER_ADMIN"],
+    async (input: { id: string }) => {
+        const notification = await prisma.saasNotification.delete({
+            where: { id: input.id }
+        });
+
+        // Revalidate history and the public listener
+        const { revalidatePath } = await import("next/cache");
+        revalidatePath("/saas-admin/notifications");
+        revalidatePath("/(isp-panel)/layout");
+
+        return notification;
     }
 );

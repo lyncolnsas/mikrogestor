@@ -7,12 +7,29 @@ import { Label } from "@/components/ui/label"
 import { Network, ArrowRight } from "lucide-react"
 import { motion } from "framer-motion"
 
-// Note: In a real implementation, we would also use useActionState for login here.
-// For now, focusing on the Visual Upgrade requested.
-
+import { useSearchParams } from "next/navigation"
+import { useState, useEffect, Suspense } from "react"
 import { LoginFormInner } from "@/components/auth/login-form-inner"
+import { RegistrationSuccessModal } from "@/components/auth/registration-success-modal"
 
 export default function LoginForm() {
+    return (
+        <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Carregando...</div>}>
+            <LoginFormContent />
+        </Suspense>
+    );
+}
+
+function LoginFormContent() {
+    const searchParams = useSearchParams();
+    const [isSuccessOpen, setIsSuccessOpen] = useState(false);
+
+    useEffect(() => {
+        if (searchParams.get("registered") === "true") {
+            setIsSuccessOpen(true);
+        }
+    }, [searchParams]);
+
     return (
         <div className="flex min-h-screen w-full bg-white dark:bg-slate-950">
             {/* Left Side - Hero / Branding */}
@@ -75,6 +92,11 @@ export default function LoginForm() {
                     <LoginFormInner />
                 </div>
             </div>
+
+            <RegistrationSuccessModal 
+                isOpen={isSuccessOpen} 
+                onClose={() => setIsSuccessOpen(false)} 
+            />
         </div>
     )
 }

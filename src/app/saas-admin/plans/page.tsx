@@ -137,14 +137,38 @@ export default async function SaasPlansPage() {
                                         <span>{plan.maxCustomers.toLocaleString()} Clientes</span>
                                     </div>
 
-                                    {plan.features && typeof plan.features === 'object' && Object.entries(plan.features as Record<string, unknown>).map(([key, value]) => (
-                                        <div key={key} className="flex items-center gap-5 text-slate-500 dark:text-slate-400 text-sm font-bold group/feat">
-                                            <div className="h-8 w-8 rounded-xl bg-emerald-500/10 flex items-center justify-center group-hover/feat:bg-emerald-500/20 group-hover/feat:rotate-12 transition-all">
-                                                <Check className="h-4 w-4 text-emerald-500" />
+                                    <div className="space-y-4 mb-8">
+                                        {[
+                                            "Gestão completa de clientes",
+                                            "Controle financeiro",
+                                            "Suporte técnico",
+                                            "Integração com Mikrotik",
+                                            "Área do cliente",
+                                            "Relatórios",
+                                            "Integração com bancos",
+                                            "Personalizações",
+                                            "Treinamento incluído"
+                                        ].map((feature) => (
+                                            <div key={feature} className="flex items-center gap-4 text-slate-500 dark:text-slate-400 text-sm font-bold">
+                                                <div className="h-6 w-6 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                                                    <Check className="h-3 w-3 text-emerald-500" />
+                                                </div>
+                                                <span>{feature}</span>
                                             </div>
-                                            <span className="capitalize">{key.replace(/_/g, ' ')}: <span className="text-slate-900 dark:text-slate-200 font-black">{value === true ? 'Ilimitado' : String(value)}</span></span>
-                                        </div>
-                                    ))}
+                                        ))}
+                                    </div>
+
+                                    {plan.features && typeof plan.features === 'object' && Object.entries(plan.features as Record<string, unknown>).map(([key, value]) => {
+                                        if (['whatsapp', 'api_access', 'priority_support'].includes(key)) return null;
+                                        return (
+                                            <div key={key} className="flex items-center gap-5 text-indigo-600 dark:text-indigo-400 text-sm font-black bg-indigo-500/5 p-4 rounded-2xl border border-indigo-500/10 mb-2 mt-4">
+                                                <div className="h-8 w-8 rounded-xl bg-indigo-500/10 flex items-center justify-center">
+                                                    <Zap className="h-4 w-4 text-indigo-500" />
+                                                </div>
+                                                <span className="capitalize">{key.replace(/_/g, ' ')}: <span className="text-slate-900 dark:text-slate-100">{value === true ? 'Ilimitado' : String(value)}</span></span>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
 
                                 <div className="mt-12 pt-10 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-4">

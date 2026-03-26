@@ -22,10 +22,11 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { UserPlus, Loader2, Wifi, Upload, Download, KeyRound, Mail, Phone, CreditCard, User } from "lucide-react"
+import { UserPlus, Loader2, Wifi, Upload, Download, KeyRound, Mail, Phone, CreditCard, User, MapPin, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { createCustomerAction } from "../actions/customer-actions"
 import { getPlans } from "@/modules/financial/actions/plan.actions"
+import { getTenantNasList } from "@/modules/network/actions/nas.actions"
 import { getIspSubscriptionAction } from "@/app/(isp-panel)/overview/dashboard-actions"
 import { toast } from "sonner"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -47,6 +48,15 @@ const customerSchema = z.object({
     downloadSpeed: z.number().positive(),
     uploadSpeed: z.number().positive(),
     password: z.string().optional().or(z.literal("")).or(z.null()),
+    // Address fields
+    zipCode: z.string().optional().or(z.literal("")).or(z.null()),
+    street: z.string().optional().or(z.literal("")).or(z.null()),
+    number: z.string().optional().or(z.literal("")).or(z.null()),
+    neighborhood: z.string().optional().or(z.literal("")).or(z.null()),
+    city: z.string().optional().or(z.literal("")).or(z.null()),
+    state: z.string().optional().or(z.literal("")).or(z.null()),
+    complement: z.string().optional().or(z.literal("")).or(z.null()),
+    nasId: z.coerce.number().optional().or(z.null()),
 });
 
 interface CreateCustomerModalProps {
@@ -63,6 +73,7 @@ interface Plan {
 
 export function CreateCustomerModal({ trigger, onSuccess }: CreateCustomerModalProps) {
     const [open, setOpen] = React.useState(false)
+    const [isFetchingCep, setIsFetchingCep] = React.useState(false)
     const queryClient = useQueryClient()
 
     // Busca planos para seleção
@@ -81,6 +92,16 @@ export function CreateCustomerModal({ trigger, onSuccess }: CreateCustomerModalP
         enabled: open
     });
 
+    // Busca concentradores (NAS)
+    const { data: nasList = [] } = useQuery({
+        queryKey: ['nas-list'],
+        queryFn: async () => {
+            const result = await getTenantNasList();
+            return result || [];
+        },
+        enabled: open
+    });
+
     const isLimitReached = subscription && subscription.usedCustomers >= subscription.maxCustomers;
 
     const form = useForm<z.infer<typeof customerSchema>>({
@@ -94,10 +115,46 @@ export function CreateCustomerModal({ trigger, onSuccess }: CreateCustomerModalP
             downloadSpeed: 0,
             uploadSpeed: 0,
             password: "",
+            zipCode: "",
+            street: "",
+            number: "",
+            neighborhood: "",
+            city: "",
+            state: "",
+            complement: "",
+            nasId: null as any,
         }
     })
 
     const { isSubmitting } = form.formState
+
+    // Função para buscar CEP
+    const handleCepBlur = async (e: React.FocusEvent<HTMLInputElement>) => {
+        const cep = e.target.value.replace(/\D/g, "");
+        if (cep.length === 8) {
+            setIsFetchingCep(true);
+            try {
+                const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+                const data = await response.json();
+                
+                if (!data.erro) {
+                    form.setValue("street", data.logradouro);
+                    form.setValue("neighborhood", data.bairro);
+                    form.setValue("city", data.localidade);
+                    form.setValue("state", data.uf);
+                    form.setValue("complement", data.complemento);
+                    
+                    toast.success("Endereço localizado!");
+                } else {
+                    toast.error("CEP não encontrado.");
+                }
+            } catch (error) {
+                toast.error("Erro ao buscar CEP.");
+            } finally {
+                setIsFetchingCep(false);
+            }
+        }
+    }
 
     // Atualiza velocidades quando o plano muda
     const handlePlanChange = (planName: string) => {
@@ -138,7 +195,7 @@ export function CreateCustomerModal({ trigger, onSuccess }: CreateCustomerModalP
                     </Button>
                 )}
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[550px] p-0 overflow-hidden border border-border shadow-2xl bg-card rounded-3xl">
+            <DialogContent className="sm:max-w-[700px] p-0 overflow-hidden border border-border shadow-2xl bg-card rounded-3xl">
                 <DialogHeader className="p-6 bg-muted/10 border-b border-border">
                     <div className="flex justify-between items-start">
                         <div className="space-y-1">
@@ -168,15 +225,19 @@ export function CreateCustomerModal({ trigger, onSuccess }: CreateCustomerModalP
                     )}
                 </DialogHeader>
 
-                <form onSubmit={form.handleSubmit(onSubmit)} className="p-6 space-y-5">
+                <form onSubmit={form.handleSubmit(onSubmit)} className="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
+                    {/* Seção de Dados Pessoais */}
                     <div className="space-y-4">
                         <h4 className="text-xs font-black uppercase tracking-wider text-muted-foreground/60 flex items-center gap-2">
                             <User className="h-3 w-3" /> Dados Pessoais
                         </h4>
-                        <div className="space-y-3">
+                        <div className="grid gap-3">
                             <div className="grid gap-2">
                                 <Label htmlFor="name" className="text-xs font-bold text-foreground">Nome Completo</Label>
-                                <Input id="name" {...form.register("name")} className="rounded-xl bg-muted/5 border-border focus:bg-muted/10 transition-all h-10" placeholder="Ex: João da Silva" />
+                                <div className="relative">
+                                    <User className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                                    <Input id="name" {...form.register("name")} className="rounded-xl pl-9 bg-muted/5 border-border focus:bg-muted/10 transition-all h-10" placeholder="Ex: João da Silva" />
+                                </div>
                                 {form.formState.errors.name && <p className="text-[10px] text-destructive font-bold">{form.formState.errors.name.message}</p>}
                             </div>
 
@@ -211,6 +272,67 @@ export function CreateCustomerModal({ trigger, onSuccess }: CreateCustomerModalP
 
                     <div className="h-px bg-slate-100 dark:bg-slate-800" />
 
+                    {/* Seção de Endereço */}
+                    <div className="space-y-4">
+                        <h4 className="text-xs font-black uppercase tracking-wider text-muted-foreground/60 flex items-center gap-2">
+                            <MapPin className="h-3 w-3" /> Endereço do Assinante
+                        </h4>
+                        
+                        <div className="grid grid-cols-12 gap-4">
+                            <div className="col-span-4 grid gap-2">
+                                <Label htmlFor="zipCode" className="text-xs font-bold text-foreground">CEP</Label>
+                                <div className="relative">
+                                    <Search className={cn("absolute left-3 top-2.5 h-4 w-4", isFetchingCep ? "animate-pulse text-primary" : "text-muted-foreground")} />
+                                    <Input 
+                                        id="zipCode" 
+                                        {...form.register("zipCode")} 
+                                        onBlur={handleCepBlur}
+                                        className="rounded-xl pl-9 bg-muted/5 border-border focus:bg-muted/10 transition-all h-10 font-mono text-sm" 
+                                        placeholder="00000-000" 
+                                    />
+                                    {isFetchingCep && (
+                                        <div className="absolute right-3 top-2.5">
+                                            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            
+                            <div className="col-span-8 grid gap-2">
+                                <Label htmlFor="street" className="text-xs font-bold text-foreground">Rua / Logradouro</Label>
+                                <Input id="street" {...form.register("street")} className="rounded-xl bg-muted/5 border-border focus:bg-muted/10 transition-all h-10" placeholder="Nome da rua..." />
+                            </div>
+
+                            <div className="col-span-3 grid gap-2">
+                                <Label htmlFor="number" className="text-xs font-bold text-foreground">Número</Label>
+                                <Input id="number" {...form.register("number")} className="rounded-xl bg-muted/5 border-border focus:bg-muted/10 transition-all h-10" placeholder="123" />
+                            </div>
+
+                            <div className="col-span-5 grid gap-2">
+                                <Label htmlFor="neighborhood" className="text-xs font-bold text-foreground">Bairro</Label>
+                                <Input id="neighborhood" {...form.register("neighborhood")} className="rounded-xl bg-muted/5 border-border focus:bg-muted/10 transition-all h-10" placeholder="Bairro..." />
+                            </div>
+
+                            <div className="col-span-4 grid gap-2">
+                                <Label htmlFor="complement" className="text-xs font-bold text-foreground">Complemento</Label>
+                                <Input id="complement" {...form.register("complement")} className="rounded-xl bg-muted/5 border-border focus:bg-muted/10 transition-all h-10" placeholder="Apto, Bloco..." />
+                            </div>
+
+                            <div className="col-span-8 grid gap-2">
+                                <Label htmlFor="city" className="text-xs font-bold text-foreground">Cidade</Label>
+                                <Input id="city" {...form.register("city")} className="rounded-xl bg-muted/5 border-border focus:bg-muted/10 transition-all h-10" placeholder="Cidade..." />
+                            </div>
+
+                            <div className="col-span-4 grid gap-2">
+                                <Label htmlFor="state" className="text-xs font-bold text-foreground">UF</Label>
+                                <Input id="state" {...form.register("state")} maxLength={2} className="rounded-xl bg-muted/5 border-border focus:bg-muted/10 transition-all h-10 uppercase text-center font-bold" placeholder="SP" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="h-px bg-slate-100 dark:bg-slate-800" />
+
+                    {/* Seção de Acesso & Plano */}
                     <div className="space-y-4">
                         <h4 className="text-xs font-black uppercase tracking-wider text-muted-foreground/60 flex items-center gap-2">
                             <Wifi className="h-3 w-3" /> Acesso & Plano
@@ -268,22 +390,48 @@ export function CreateCustomerModal({ trigger, onSuccess }: CreateCustomerModalP
                             </div>
                         </div>
 
-                        <div className="grid gap-2">
-                            <Label htmlFor="email" className="text-xs font-bold text-foreground">Email (Opcional)</Label>
-                            <div className="relative">
-                                <Mail className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                                <Input id="email" {...form.register("email")} className="rounded-xl pl-9 bg-muted/5 border-border focus:bg-muted/10 transition-all h-10" placeholder="cliente@email.com" />
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <Label htmlFor="email" className="text-xs font-bold text-foreground">Email (Opcional)</Label>
+                                <div className="relative">
+                                    <Mail className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                                    <Input id="email" {...form.register("email")} className="rounded-xl pl-9 bg-muted/5 border-border focus:bg-muted/10 transition-all h-10 text-sm" placeholder="cliente@email.com" />
+                                </div>
+                                {form.formState.errors.email && <p className="text-[10px] text-destructive font-bold">{form.formState.errors.email.message}</p>}
                             </div>
-                            {form.formState.errors.email && <p className="text-[10px] text-destructive font-bold">{form.formState.errors.email.message}</p>}
                         </div>
 
-                        <div className="grid gap-2">
-                            <Label htmlFor="password" className="text-xs font-bold text-foreground">Senha Radius (Opcional)</Label>
-                            <div className="relative">
-                                <KeyRound className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                                <Input id="password" type="password" {...form.register("password")} className="rounded-xl pl-9 bg-muted/5 border-border focus:bg-muted/10 transition-all h-10" placeholder="••••••" />
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <Label htmlFor="nasId" className="text-xs font-bold text-foreground italic uppercase flex items-center gap-1.5 opacity-70">
+                                    Concentrador (Opcional)
+                                </Label>
+                                <Select 
+                                    onValueChange={(val) => form.setValue("nasId", val === "0" ? null : parseInt(val))}
+                                    defaultValue="0"
+                                >
+                                    <SelectTrigger className="rounded-xl bg-muted/5 h-10 border-border">
+                                        <SelectValue placeholder="Qualquer Concentrador" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="0">Qualquer Concentrador</SelectItem>
+                                        {nasList.map((nas: any) => (
+                                            <SelectItem key={nas.id} value={nas.id.toString()}>
+                                                {nas.shortname} ({nas.nasname})
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
-                            {form.formState.errors.password && <p className="text-[10px] text-destructive font-bold">{form.formState.errors.password.message}</p>}
+
+                            <div className="grid gap-2">
+                                <Label htmlFor="password" className="text-xs font-bold text-foreground">Senha Radius (Opcional)</Label>
+                                <div className="relative">
+                                    <KeyRound className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                                    <Input id="password" type="password" {...form.register("password")} className="rounded-xl pl-9 bg-muted/5 border-border focus:bg-muted/10 transition-all h-10 text-sm" placeholder="••••••" />
+                                </div>
+                                {form.formState.errors.password && <p className="text-[10px] text-destructive font-bold">{form.formState.errors.password.message}</p>}
+                            </div>
                         </div>
                     </div>
 
@@ -292,9 +440,13 @@ export function CreateCustomerModal({ trigger, onSuccess }: CreateCustomerModalP
                         <Button
                             type="submit"
                             disabled={isSubmitting || isLimitReached}
-                            className="rounded-xl font-bold h-11 min-w-[140px]"
+                            className={cn(
+                                "rounded-xl font-bold h-11 min-w-[140px] transition-all",
+                                isSubmitting ? "opacity-70" : "hover:scale-[1.02] shadow-lg shadow-primary/20"
+                            )}
                         >
-                            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Concluir Cadastro"}
+                            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <UserPlus className="h-4 w-4 mr-2" />}
+                            Concluir Cadastro
                         </Button>
                     </DialogFooter>
                 </form>

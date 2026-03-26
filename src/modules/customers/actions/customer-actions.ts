@@ -6,9 +6,7 @@ import { RadiusService } from "@/modules/saas/services/radius.service";
 import * as z from "zod";
 import { revalidatePath } from "next/cache";
 import { withTenantDb } from "@/lib/auth-utils.server";
-import crypto from "node:crypto";
-
-import { generateCpf, generateRandomEmail, generateRandomPassword, validateCpf } from "@/lib/generators";
+import { validateCpf, generateCpf, generateRandomEmail, generateRandomPassword } from "@/lib/generators";
 
 const customerSchema = z.object({
     name: z.string().min(3, "Nome muito curto"),
@@ -19,6 +17,15 @@ const customerSchema = z.object({
     downloadSpeed: z.number().positive(),
     uploadSpeed: z.number().positive(),
     password: z.string().optional().or(z.literal("")).or(z.null()),
+    // Address Fields
+    zipCode: z.string().optional().or(z.literal("")).or(z.null()),
+    street: z.string().optional().or(z.literal("")).or(z.null()),
+    number: z.string().optional().or(z.literal("")).or(z.null()),
+    neighborhood: z.string().optional().or(z.literal("")).or(z.null()),
+    city: z.string().optional().or(z.literal("")).or(z.null()),
+    state: z.string().optional().or(z.literal("")).or(z.null()),
+    complement: z.string().optional().or(z.literal("")).or(z.null()),
+    nasId: z.coerce.number().optional().or(z.null()),
 });
 
 /**
@@ -34,7 +41,6 @@ export const createCustomerAction = protectedAction(
         // Validation and Generation
         let cpfCnpj = data.cpfCnpj;
         if (cpfCnpj && cpfCnpj.trim() !== "") {
-            // Se fornecido, validar (removendo máscaras)
             const cleanCpf = cpfCnpj.replace(/\D/g, "");
             if (cleanCpf.length === 11 && !validateCpf(cleanCpf)) {
                 throw new Error("O CPF informado é inválido ou está fora do padrão.");
@@ -42,89 +48,93 @@ export const createCustomerAction = protectedAction(
             cpfCnpj = cleanCpf;
         } else {
             cpfCnpj = generateCpf();
-
         }
 
         const email = (data.email && data.email.trim() !== "") ? data.email : generateRandomEmail(name);
         const password = (data.password && data.password.trim() !== "") ? data.password : generateRandomPassword();
-
         const phone = data.phone;
-        const downloadSpeed = data.downloadSpeed;
-        const uploadSpeed = data.uploadSpeed;
 
-        // Use transaction to ensure both DB and Radius are in sync
         try {
             const result = await withTenantDb(async (db) => {
-                // 1. Check if CPF/CNPJ already exists for this tenant
-                const existingCustomer = await db.$queryRaw`
-                    SELECT id FROM customers WHERE cpf_cnpj = ${cpfCnpj} LIMIT 1
-                ` as any[];
-
-                if (existingCustomer.length > 0) {
-                    throw new Error("Este CPF/CNPJ já está cadastrado.");
-                }
-
-                // 2. Check SaaS Plan Limits
-                const tenantWithPlan = await (prisma as any).tenant.findUnique({
-                    where: { id: session.tenantId },
-                    include: {
-                        subscription: {
-                            include: { plan: true }
-                        }
-                    }
-                });
-
-                const maxCustomers = tenantWithPlan?.subscription?.plan?.maxCustomers || 0;
-                const currentCustomers = await db.customer.count();
-
-                if (currentCustomers >= maxCustomers) {
-                    throw new Error(`Limite de assinantes do seu plano (${maxCustomers}) atingido. Faça um upgrade para continuar.`);
-                }
-
-                // Find the plan to get PPPoE attributes - Use Raw SQL to bypass schema hardcoding
-                const planResult = await db.$queryRaw`
-                    SELECT * FROM plans WHERE name = ${data.planName} LIMIT 1
-                ` as any[];
-                const plan = planResult[0];
-
                 return await db.$transaction(async (tx) => {
                     const { runWithTenant, getTenantContext } = await import("@/shared/tenancy/tenancy.context");
                     const context = getTenantContext();
 
                     return await runWithTenant({ ...context!, isInsideTransaction: true }, async () => {
-                        // 3. Create the customer record using Raw SQL to bypass schema hardcoding
-                        await tx.$executeRawUnsafe(`SET search_path = "${context!.schema}", "management", "radius", "public"`);
+                        // 1. Check if CPF/CNPJ already exists for this tenant
+                        const existingCustomer = await tx.customer.findUnique({
+                            where: { cpfCnpj }
+                        });
 
-                        const customerResult = await tx.$queryRaw`
-                            INSERT INTO customers (
-                                id, name, cpf_cnpj, phone, address, status, plan_id, radius_password, email, "createdAt", "updatedAt"
-                            ) VALUES (
-                                ${crypto.randomUUID()}::uuid, ${name}, ${cpfCnpj}, ${phone}, ${JSON.stringify({})}::jsonb, 
-                                'ACTIVE', ${plan?.id || null}::uuid, ${password}, ${email}, NOW(), NOW()
-                            ) RETURNING *
-                        ` as any[];
+                        if (existingCustomer) {
+                            throw new Error("Este CPF/CNPJ já está cadastrado.");
+                        }
 
-                        const customer = customerResult[0];
+                        // 2. Check SaaS Plan Limits
+                        const tenantWithPlan = await (prisma as any).tenant.findUnique({
+                            where: { id: session.tenantId },
+                            include: {
+                                subscription: {
+                                    include: { plan: true }
+                                }
+                            }
+                        });
+
+                        const maxCustomers = tenantWithPlan?.subscription?.plan?.maxCustomers || 0;
+                        const currentCustomers = await tx.customer.count();
+
+                        if (currentCustomers >= maxCustomers) {
+                            throw new Error(`Limite de assinantes do seu plano (${maxCustomers}) atingido. Faça um upgrade para continuar.`);
+                        }
+
+                        // Find the plan to get PPPoE attributes
+                        const plan = await tx.plan.findFirst({
+                            where: { name: data.planName }
+                        });
+
+                        // 3. Create the customer record using Prisma Client
+                        const customer = await (tx.customer as any).create({
+                            data: {
+                                name,
+                                cpfCnpj,
+                                phone,
+                                email,
+                                zipCode: data.zipCode,
+                                street: data.street,
+                                number: data.number,
+                                neighborhood: data.neighborhood,
+                                city: data.city,
+                                state: data.state,
+                                complement: data.complement,
+                                radiusPassword: password,
+                                status: 'ACTIVE' as any,
+                                planId: plan?.id,
+                                nasId: data.nasId
+                            }
+                        });
+
                         if (!customer) throw new Error("Falha ao criar assinante no banco de dados.");
 
                         // New Rule: Login is t{tenantId}_{CPF} and Password is CPF
-                        const radiusUsername = `t${session.tenantId}_${customer.cpf_cnpj}`;
-                        const radiusPassword = customer.cpf_cnpj;
+                        const radiusUsername = `t${session.tenantId}_${customer.cpfCnpj}`;
+                        const radiusPassword = customer.cpfCnpj;
 
                         await RadiusService.syncCustomer(session.tenantId!, {
                             id: customer.id,
                             radiusPassword: radiusPassword,
-                            cpfCnpj: customer.cpf_cnpj
+                            cpfCnpj: customer.cpfCnpj,
+                            nasId: customer.nasId
                         }, {
-                            upload: uploadSpeed,
-                            download: downloadSpeed,
+                            upload: data.uploadSpeed,
+                            download: data.downloadSpeed,
                             remoteIpPool: plan?.remoteIpPool || undefined
                         }, tx);
 
-                        // 4. Sync to all associated MikroTiks (NAS) for redundancy
+                        // 4. Sync to associated MikroTik (NAS) - Only defined NAS or all for fallback
                         try {
+                            const nasFilter = customer.nasId ? { id: customer.nasId } : { tenantId: session.tenantId };
                             const nasList = await (prisma as any).nas.findMany({
-                                where: { tenantId: session.tenantId }
+                                where: nasFilter
                             });
 
                             const { MikrotikService } = await import("@/modules/saas/services/mikrotik.service");
@@ -135,38 +145,22 @@ export const createCustomerAction = protectedAction(
                                     password: radiusPassword,
                                     planName: data.planName,
                                     remoteIpPool: plan?.remoteIpPool || undefined
-                                }).catch(err => console.warn(`[CustomerSync] Failed to sync to NAS ${nas.nasname}:`, err.message));
+                                }).catch(() => {});
                             }
-                        } catch (err) {
-                            console.error("[CustomerSync] Global sync error:", err);
-                        }
+                        } catch (err) {}
 
                         return customer;
                     });
                 }, { timeout: 30000 });
             });
 
-
-
-            // Auto Backup Trigger (ISP Level)
-            try {
-                const { BackupService } = await import("@/modules/saas/services/backup.service");
-                const customerName = (result as any).name || data.name;
-                await BackupService.createBackup(`Auto: Novo Assinante ISP (${customerName})`);
-            } catch (e) {
-                console.error("Failed to create auto-backup:", e);
-            }
-
             revalidatePath("/customers");
             return result;
         } catch (error: any) {
             console.error("[createCustomerAction] Error:", error);
-
-            // Personalizar mensagens de erro comuns
             if (error.message?.includes("23505") || error.message?.includes("already exists")) {
                 throw new Error("Este CPF/CNPJ já está cadastrado.");
             }
-
             throw error;
         }
     }
@@ -194,6 +188,13 @@ export const getCustomersAction = protectedAction(
                 cpfCnpj: c.cpfCnpj,
                 status: c.status,
                 email: c.email,
+                zipCode: c.zipCode,
+                street: c.street,
+                number: c.number,
+                neighborhood: c.neighborhood,
+                city: c.city,
+                state: c.state,
+                complement: c.complement,
                 radiusPassword: c.radiusPassword,
                 radiusUsername: c.cpfCnpj ? `t${session.tenantId}_${c.cpfCnpj}` : `t${session.tenantId}_${c.id}`,
                 plan: c.plan ? {
@@ -231,6 +232,13 @@ export const getCustomerAction = protectedAction(
                 status: customer.status,
                 email: customer.email,
                 phone: customer.phone,
+                zipCode: customer.zipCode,
+                street: customer.street,
+                number: customer.number,
+                neighborhood: customer.neighborhood,
+                city: customer.city,
+                state: customer.state,
+                complement: customer.complement,
                 radiusPassword: customer.radiusPassword,
                 radiusUsername: customer.cpfCnpj ? `t${session.tenantId}_${customer.cpfCnpj}` : `t${session.tenantId}_${customer.id}`,
                 createdAt: customer.createdAt,
@@ -265,17 +273,7 @@ export const getCustomerConsumptionAction = protectedAction(
             const logs = await prisma.radAcct.findMany({
                 where: { username: radiusUsername },
                 orderBy: { acctstarttime: 'desc' },
-                take: 20,
-                select: {
-                    radacctid: true,
-                    acctstarttime: true,
-                    acctstoptime: true,
-                    acctsessiontime: true,
-                    acctinputoctets: true,
-                    acctoutputoctets: true,
-                    framedipaddress: true,
-                    acctterminatecause: true
-                }
+                take: 20
             });
 
             return logs.map(l => ({
@@ -304,20 +302,17 @@ export const toggleCustomerStatusAction = protectedAction(
                 const context = getTenantContext();
 
                 return await runWithTenant({ ...context!, isInsideTransaction: true }, async () => {
-                    // 1. Atualiza no banco do tenant usando Raw SQL
-                    const customerResult = await tx.$queryRaw`
-                        UPDATE customers 
-                        SET status = ${status}, "updatedAt" = NOW()
-                        WHERE id = ${customerId}
-                        RETURNING *
-                    ` as any[];
+                    const customer = await tx.customer.update({
+                        where: { id: customerId },
+                        data: { 
+                            status: status as any,
+                            updatedAt: new Date()
+                        }
+                    });
 
-                    const customer = customerResult[0];
                     if (!customer) throw new Error("Assinante não encontrado.");
 
-                    // 2. Sincroniza com o Radius para aplicar/remover bloqueio
                     const radiusUsername = customer.cpfCnpj ? `t${session.tenantId}_${customer.cpfCnpj}` : `t${session.tenantId}_${customer.id}`;
-
                     await RadiusService.syncStatus(radiusUsername, status, tx);
 
                     return customer;
@@ -338,47 +333,29 @@ export const deleteCustomerAction = protectedAction(
     async (customerId: string, session) => {
         try {
             const result = await withTenantDb(async (db) => {
-                // 1. Busca o cliente para garantir que existe e obter dados necessários
-                const customer = await db.customer.findUnique({
-                    where: { id: customerId }
-                });
-
-                if (!customer) {
-                    throw new Error("Assinante não encontrado.");
-                }
-
-                // 2. Executa a limpeza em transação
                 return await db.$transaction(async (tx) => {
                     const { runWithTenant, getTenantContext } = await import("@/shared/tenancy/tenancy.context");
                     const context = getTenantContext();
 
                     return await runWithTenant({ ...context!, isInsideTransaction: true }, async () => {
-                        // A. Remove do Radius (Síncrono)
-                        const radiusUsername = customer.cpfCnpj ? `t${session.tenantId}_${customer.cpfCnpj}` : `t${session.tenantId}_${customer.id}`;
-                        await RadiusService.removeCustomer(radiusUsername, tx).catch(err => {
-                            console.warn(`[DeleteCustomer] Failed to de-provision from Radius:`, err.message);
-                        });
+                        const customer = await tx.customer.findUnique({ where: { id: customerId } });
+                        if (!customer) throw new Error("Assinante não encontrado.");
 
-                        // B. Remove do MikroTik (Redundância NAS)
+                        const radiusUsername = customer.cpfCnpj ? `t${session.tenantId}_${customer.cpfCnpj}` : `t${session.tenantId}_${customer.id}`;
+                        await RadiusService.removeCustomer(radiusUsername, tx).catch(() => {});
+
                         try {
                             const nasList = await (prisma as any).nas.findMany({
                                 where: { tenantId: session.tenantId }
                             });
-
                             const { MikrotikService } = await import("@/modules/saas/services/mikrotik.service");
-
                             for (const nas of nasList) {
-                                await MikrotikService.removeSecret(nas.id, radiusUsername)
-                                    .catch(err => console.warn(`[DeleteCustomer] Failed to remove secret from NAS ${nas.nasname}:`, err.message));
+                                await MikrotikService.removeSecret(nas.id, radiusUsername).catch(() => {});
                             }
-                        } catch (err) {
-                            console.error("[DeleteCustomer] Global NAS sync error:", err);
-                        }
+                        } catch (err) {}
 
-                        // C. Exclui o registro no banco do tenant usando Raw SQL
-                        await tx.$queryRaw`DELETE FROM customers WHERE id = ${customerId}`;
-
-                        return { success: true, message: `Assinante ${customer.name} excluído com sucesso.` };
+                        await tx.customer.delete({ where: { id: customerId } });
+                        return { success: true };
                     });
                 }, { timeout: 30000 });
             });
@@ -387,6 +364,105 @@ export const deleteCustomerAction = protectedAction(
             return result;
         } catch (error: any) {
             console.error("[deleteCustomerAction] Error:", error);
+            throw error;
+        }
+    }
+);
+
+/**
+ * Updates an existing customer and re-provisions access if necessary
+ */
+export const updateCustomerAction = protectedAction(
+    ["ISP_ADMIN", "SUPER_ADMIN"],
+    async (input: any, session) => {
+        const { id, ...data } = input;
+        
+        try {
+            const result = await withTenantDb(async (db) => {
+                return await db.$transaction(async (tx) => {
+                    const { runWithTenant, getTenantContext } = await import("@/shared/tenancy/tenancy.context");
+                    const context = getTenantContext();
+
+                    return await runWithTenant({ ...context!, isInsideTransaction: true }, async () => {
+                        // 1. Check if customer exists inside transaction
+                        const customer = await tx.customer.findUnique({
+                            where: { id },
+                            include: { plan: true }
+                        });
+
+                        if (!customer) throw new Error("Assinante não encontrado.");
+
+                        // 2. Find the new plan if changed
+                        let planId = customer.planId;
+                        if (data.planName && data.planName !== customer.plan?.name) {
+                            const planResult = await tx.plan.findFirst({
+                                where: { name: data.planName }
+                            });
+                            if (planResult) {
+                                planId = planResult.id;
+                            }
+                        }
+
+                        // 3. Update the customer record
+                        const updatedCustomer = await (tx.customer as any).update({
+                            where: { id },
+                            data: {
+                                name: data.name,
+                                phone: data.phone,
+                                email: data.email,
+                                zipCode: data.zipCode,
+                                street: data.street,
+                                number: data.number,
+                                neighborhood: data.neighborhood,
+                                city: data.city,
+                                state: data.state,
+                                complement: data.complement,
+                                radiusPassword: data.password || customer.radiusPassword,
+                                planId: planId,
+                                nasId: data.nasId,
+                                updatedAt: new Date()
+                            }
+                        });
+
+
+                        // 4. Re-sync with Radius
+                        const radiusUsername = updatedCustomer.cpfCnpj ? `t${session.tenantId}_${updatedCustomer.cpfCnpj}` : `t${session.tenantId}_${updatedCustomer.id}`;
+                        
+                        await RadiusService.syncCustomer(session.tenantId!, {
+                            id: updatedCustomer.id,
+                            radiusPassword: updatedCustomer.radiusPassword!,
+                            cpfCnpj: updatedCustomer.cpfCnpj,
+                            nasId: (updatedCustomer as any).nasId
+                        }, {
+                            upload: data.uploadSpeed || 0,
+                            download: data.downloadSpeed || 0
+                        }, tx);
+
+                        // 5. Update MikroTik if needed
+                        try {
+                            const nasList = await (prisma as any).nas.findMany({
+                                where: { tenantId: session.tenantId }
+                            });
+                            const { MikrotikService } = await import("@/modules/saas/services/mikrotik.service");
+                            for (const nas of nasList) {
+                                await MikrotikService.upsertSecret(nas.id, {
+                                    username: radiusUsername,
+                                    password: updatedCustomer.radiusPassword!,
+                                    planName: data.planName,
+                                }).catch(() => {});
+                            }
+                        } catch (err) {}
+
+                        return updatedCustomer;
+                    });
+                }, { timeout: 30000 });
+            });
+
+            revalidatePath(`/customers/${id}`);
+            revalidatePath("/customers");
+            return result;
+        } catch (error: any) {
+            console.error("[updateCustomerAction] Error:", error);
             throw error;
         }
     }

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { AlertCircle, Loader2, Save, ShoppingBag as MapPin } from "lucide-react"
+import { AlertCircle, Loader2, Save, MapPin } from "lucide-react"
 import { updateSubscriberProfileAction } from "@/modules/customers/actions/subscriber-profile.actions"
 import { useRouter } from "next/navigation"
 
@@ -28,9 +28,16 @@ type ProfileFormValues = z.infer<typeof subscriberProfileSchema>;
 
 interface SubscriberInfoFormProps {
     initialData: {
+        id: string;
         name: string;
-        phone: string;
-        address: any;
+        phone?: string | null;
+        email?: string | null;
+        street?: string | null;
+        number?: string | null;
+        neighborhood?: string | null;
+        city?: string | null;
+        state?: string | null;
+        zipCode?: string | null;
     }
 }
 
@@ -40,20 +47,18 @@ export function SubscriberInfoForm({ initialData }: SubscriberInfoFormProps) {
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
 
-    const addr = initialData.address || {};
-
     const { register, handleSubmit, formState: { errors } } = useForm<ProfileFormValues>({
         resolver: zodResolver(subscriberProfileSchema),
         defaultValues: {
             name: initialData.name,
             phone: initialData.phone || "",
-            email: addr.email || "",
-            street: addr.street || "",
-            number: addr.number || "",
-            neighborhood: addr.neighborhood || "",
-            city: addr.city || "",
-            state: addr.state || "",
-            zipCode: addr.zipCode || "",
+            email: initialData.email || "",
+            street: initialData.street || "",
+            number: initialData.number || "",
+            neighborhood: initialData.neighborhood || "",
+            city: initialData.city || "",
+            state: initialData.state || "",
+            zipCode: initialData.zipCode || "",
         }
     });
 
@@ -88,19 +93,19 @@ export function SubscriberInfoForm({ initialData }: SubscriberInfoFormProps) {
 
                     <div className="space-y-2">
                         <Label htmlFor="name">Nome Completo</Label>
-                        <Input id="name" {...register("name")} placeholder="João da Silva" />
+                        <Input id="name" {...register("name")} placeholder="João da Silva" className="rounded-xl" />
                         {errors.name && <p className="text-xs text-red-500 font-medium">{errors.name.message}</p>}
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <Label htmlFor="phone">Telefone / WhatsApp</Label>
-                            <Input id="phone" {...register("phone")} placeholder="(11) 99999-9999" />
+                            <Input id="phone" {...register("phone")} placeholder="(11) 99999-9999" className="rounded-xl" />
                             {errors.phone && <p className="text-xs text-red-500 font-medium">{errors.phone.message}</p>}
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="email">E-mail</Label>
-                            <Input id="email" {...register("email")} placeholder="joao@email.com" />
+                            <Input id="email" {...register("email")} placeholder="joao@email.com" className="rounded-xl" />
                             {errors.email && <p className="text-xs text-red-500 font-medium">{errors.email.message}</p>}
                         </div>
                     </div>
@@ -115,12 +120,12 @@ export function SubscriberInfoForm({ initialData }: SubscriberInfoFormProps) {
                     <div className="grid grid-cols-4 gap-4">
                         <div className="col-span-3 space-y-2">
                             <Label htmlFor="street">Rua</Label>
-                            <Input id="street" {...register("street")} placeholder="Rua das Flores" />
+                            <Input id="street" {...register("street")} placeholder="Rua das Flores" className="rounded-xl" />
                             {errors.street && <p className="text-xs text-red-500 font-medium">{errors.street.message}</p>}
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="number">Nº</Label>
-                            <Input id="number" {...register("number")} placeholder="123" />
+                            <Input id="number" {...register("number")} placeholder="123" className="rounded-xl" />
                             {errors.number && <p className="text-xs text-red-500 font-medium">{errors.number.message}</p>}
                         </div>
                     </div>
@@ -128,12 +133,12 @@ export function SubscriberInfoForm({ initialData }: SubscriberInfoFormProps) {
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <Label htmlFor="neighborhood">Bairro</Label>
-                            <Input id="neighborhood" {...register("neighborhood")} placeholder="Centro" />
+                            <Input id="neighborhood" {...register("neighborhood")} placeholder="Centro" className="rounded-xl" />
                             {errors.neighborhood && <p className="text-xs text-red-500 font-medium">{errors.neighborhood.message}</p>}
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="zipCode">CEP</Label>
-                            <Input id="zipCode" {...register("zipCode")} placeholder="00000-000" />
+                            <Input id="zipCode" {...register("zipCode")} placeholder="00000-000" className="rounded-xl" />
                             {errors.zipCode && <p className="text-xs text-red-500 font-medium">{errors.zipCode.message}</p>}
                         </div>
                     </div>
@@ -141,12 +146,12 @@ export function SubscriberInfoForm({ initialData }: SubscriberInfoFormProps) {
                     <div className="grid grid-cols-3 gap-4">
                         <div className="col-span-2 space-y-2">
                             <Label htmlFor="city">Cidade</Label>
-                            <Input id="city" {...register("city")} placeholder="São Paulo" />
+                            <Input id="city" {...register("city")} placeholder="São Paulo" className="rounded-xl" />
                             {errors.city && <p className="text-xs text-red-500 font-medium">{errors.city.message}</p>}
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="state">UF</Label>
-                            <Input id="state" {...register("state")} placeholder="SP" maxLength={2} />
+                            <Input id="state" {...register("state")} placeholder="SP" maxLength={2} className="rounded-xl" />
                             {errors.state && <p className="text-xs text-red-500 font-medium">{errors.state.message}</p>}
                         </div>
                     </div>
@@ -154,21 +159,21 @@ export function SubscriberInfoForm({ initialData }: SubscriberInfoFormProps) {
             </div>
 
             {error && (
-                <Alert variant="destructive">
+                <Alert variant="destructive" className="rounded-2xl">
                     <AlertCircle className="h-4 w-4" />
                     <AlertDescription>{error}</AlertDescription>
                 </Alert>
             )}
 
             {success && (
-                <Alert className="bg-emerald-50 border-emerald-200 text-emerald-800">
+                <Alert className="bg-emerald-50 border-emerald-200 text-emerald-800 rounded-2xl">
                     <AlertCircle className="h-4 w-4 text-emerald-600" />
                     <AlertDescription>Perfil atualizado com sucesso!</AlertDescription>
                 </Alert>
             )}
 
             <div className="flex justify-end pt-4">
-                <Button type="submit" disabled={isLoading} className="bg-indigo-600 hover:bg-indigo-700 h-11 px-8 rounded-xl font-bold shadow-lg shadow-indigo-500/20">
+                <Button type="submit" disabled={isLoading} className="bg-indigo-600 hover:bg-indigo-700 h-12 px-8 rounded-2xl font-bold shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02]">
                     {isLoading ? (
                         <>
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Salvando...

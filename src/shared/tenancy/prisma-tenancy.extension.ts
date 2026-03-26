@@ -20,15 +20,17 @@ async function handleTenancy(model: string | undefined, operation: string, args:
 
     // 2. Model Filtering (Shared vs Tenant)
     const managementModels = [
-        'User', 'Tenant', 'SaasPlan', 'Subscription', 'SaasAuditLog',
+        'User', 'UserSecurityLog', 'Tenant', 'SaasPlan', 'Subscription', 'SaasAuditLog',
         'TenantProvisioningLog', 'SaasInvoice', 'VpnServer',
         'VpnServerStats', 'VpnTunnel', 'VpnTrafficLog',
         'LandingConfig', 'Testimonial', 'FAQ',
         'SaasNotification', 'SaasNotificationRead',
-        'TenantNotification', 'TenantNotificationRead'
+        'TenantNotification', 'TenantNotificationRead',
+        'SystemSettings', 'PasswordResetToken', 'PasswordRecoveryRequest',
+        'SaasPasswordResetToken', 'SaasPasswordRecoveryRequest', 'Nas'
     ];
     const radiusModels = [
-        'RadCheck', 'RadReply', 'RadAcct', 'Nas'
+        'RadCheck', 'RadReply', 'RadAcct', 'Radippool'
     ];
 
     const isSharedModel = managementModels.includes(model || '') || radiusModels.includes(model || '');
@@ -46,7 +48,7 @@ async function handleTenancy(model: string | undefined, operation: string, args:
 
     // 4. Transaction Wrapper - Pin the search_path to the connection
     // We ALWAYS wrap in a transaction to set search_path and prevent connection pool contamination.
-    return prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx: any) => {
         try {
             await tx.$executeRawUnsafe(`SET search_path = ${schemaPath}`);
         } catch (err) {
@@ -70,8 +72,9 @@ async function handleTenancy(model: string | undefined, operation: string, args:
 
                 return (tx as any)[modelName][operation](args);
             }
-            // Base client operations like $queryRaw
-            return (tx as any)[operation](args);
+            // Base client operations like $queryRaw / $executeRawUnsafe 
+            const finalArgs = Array.isArray(args) ? args : [args];
+            return (tx as any)[operation](...finalArgs);
         });
 
         return result;
@@ -89,15 +92,15 @@ export function tenancyExtension(prisma: PrismaClient) {
     return prisma.$extends({
         query: {
             $allModels: {
-                async $allOperations({ model, operation, args, query }) {
+                async $allOperations({ model, operation, args, query }: any) {
                     return handleTenancy(model, operation, args, query);
                 },
             },
             // ADDED: Capture top-level client operations
-            $queryRaw: async ({ operation, args, query }) => handleTenancy(undefined, operation, args, query),
-            $queryRawUnsafe: async ({ operation, args, query }) => handleTenancy(undefined, operation, args, query),
-            $executeRaw: async ({ operation, args, query }) => handleTenancy(undefined, operation, args, query),
-            $executeRawUnsafe: async ({ operation, args, query }) => handleTenancy(undefined, operation, args, query),
+            $queryRaw: async ({ operation, args, query }: any) => handleTenancy(undefined, operation, args, query),
+            $queryRawUnsafe: async ({ operation, args, query }: any) => handleTenancy(undefined, operation, args, query),
+            $executeRaw: async ({ operation, args, query }: any) => handleTenancy(undefined, operation, args, query),
+            $executeRawUnsafe: async ({ operation, args, query }: any) => handleTenancy(undefined, operation, args, query),
         },
     });
 }

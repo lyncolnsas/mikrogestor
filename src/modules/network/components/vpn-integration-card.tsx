@@ -42,7 +42,7 @@ export function VpnIntegrationCard({ tunnelId, internalIp, status, needsSync = f
         setIsDownloading(true)
         try {
             // Fetch the real VPN config from the server
-            const result = await getMikrotikVpnConfigAction(null as unknown as string)
+            const result = await getMikrotikVpnConfigAction({ tunnelId })
 
             if (result.error) {
                 toast.error(result.error)

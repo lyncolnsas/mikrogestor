@@ -107,17 +107,19 @@ export class SchemaService {
                 
 
                 // 1. PG_DUMP
+                console.log(`[SchemaService] Spawning pg_dump for ${schemaName}...`);
                 
-
                 const dumpProc = spawn("pg_dump", [
                     cleanDbUrl,
                     "--schema=tenant_template",
                     "--no-owner",
                     "--no-acl"
-                ], { env: { ...process.env, PGPASSWORD: pgPassword } });
+                ], { 
+                    env: Object.assign({}, process.env, { PGPASSWORD: pgPassword }) 
+                });
 
                 const psqlProc = spawn("psql", [cleanDbUrl], {
-                    env: { ...process.env, PGPASSWORD: pgPassword }
+                    env: Object.assign({}, process.env, { PGPASSWORD: pgPassword })
                 });
 
                 // Error handlers
@@ -129,6 +131,7 @@ export class SchemaService {
                 // Transform logic: Stream-based replacement
                 // For simplicity and to avoid splitting keywords across chunks, 
                 // we'll use a simple approach but ensure we don't hold the whole dump in memory.
+                console.log(`[SchemaService] Setting up transformation stream for ${schemaName}`);
                 const { Transform } = await import('stream');
                 const replaceStream = new Transform({
                     transform(chunk, encoding, callback) {

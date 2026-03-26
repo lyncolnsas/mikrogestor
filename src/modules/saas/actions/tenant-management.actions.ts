@@ -72,13 +72,14 @@ const updateTenantSchema = z.object({
     gracePeriod: z.coerce.number().int().min(0),
     autoBlock: z.boolean(),
     autoUnblock: z.boolean(),
+    extraVpns: z.coerce.number().int().min(0).optional().default(0),
 });
 
 export const updateTenantAction = protectedAction(
     ["SUPER_ADMIN"],
     async (input) => {
         const data = updateTenantSchema.parse(input);
-        const { tenantId, name, planId, interestRate, penaltyAmount, gracePeriod, autoBlock, autoUnblock } = data;
+        const { tenantId, name, planId, interestRate, penaltyAmount, gracePeriod, autoBlock, autoUnblock, extraVpns } = data;
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const tenant = await (prisma as any).tenant.findUnique({
@@ -90,11 +91,14 @@ export const updateTenantAction = protectedAction(
 
         const schemaName = `tenant_${tenant.slug.replace(/-/g, '_')}`;
 
-        await prisma.$transaction(async (tx) => {
+        await prisma.$transaction(async (tx: any) => {
             // 1. Update Tenant Basic Info
             await tx.tenant.update({
                 where: { id: tenantId },
-                data: { name }
+                data: { 
+                    name,
+                    extraVpns: extraVpns
+                }
             });
 
             // 2. Update Subscription
@@ -149,7 +153,14 @@ export const getTenantFullDataAction = protectedAction(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const tenant = await (prisma as any).tenant.findUnique({
             where: { id: tenantId },
-            include: { subscription: true }
+            include: { 
+                subscription: {
+                    include: { plan: true }
+                },
+                _count: {
+                    select: { vpnTunnels: true }
+                }
+            }
         });
 
         if (!tenant) throw new Error("Tenant não encontrado");
@@ -163,9 +174,12 @@ export const getTenantFullDataAction = protectedAction(
         return {
             id: tenant.id,
             name: tenant.name,
+            extraVpns: tenant.extraVpns || 0,
+            _count: tenant._count,
             subscription: tenant.subscription ? {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                planId: (tenant.subscription as any).planId
+                planId: (tenant.subscription as any).planId,
+                plan: (tenant.subscription as any).plan
             } : undefined,
             financialConfig: financialConfig ? {
                 interestRate: Number(financialConfig.interestRate),
@@ -192,7 +206,6 @@ export const deleteTenantAction = protectedAction(
 
         try {
             // 0. Force terminate connections (Postgres often blocks DROP SCHEMA if active sessions exist)
-            // Target only connections using the specific schema search_path or related to this tenant
             const terminateQuery = `
                 SELECT pg_terminate_backend(pid) 
                 FROM pg_stat_activity 
@@ -202,49 +215,53 @@ export const deleteTenantAction = protectedAction(
             `;
             try {
                 await prisma.$executeRawUnsafe(terminateQuery);
-                // Give Postgres a moment to release locks
                 await new Promise(r => setTimeout(r, 500));
             } catch (e) {
-                console.warn("[DeleteTenant] Could not terminate backends (common if not superuser):", e);
+                console.warn("[DeleteTenant] Could not terminate backends:", e);
             }
 
             // 1. Drop Schema (This deletes all tenant data: customers, invoices, etc)
-            
             const dropQuery = `DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`;
             await prisma.$executeRawUnsafe(dropQuery);
 
-            // 2. Delete Tenant (Cascading deletes handle User, VpnTunnel, Nas, Subscription, LandingConfig, Logs, etc)
-            await prisma.$transaction(async (tx) => {
-                // FIX P2003: Manually delete traffic logs since cascading might be missing in DB
-                // We first find all tunnel IDs for this tenant
-                const tunnels = await (tx as any).vpnTunnel.findMany({
-                    where: { tenantId },
-                    select: { id: true }
-                });
-                const tunnelIds = tunnels.map((t: any) => t.id);
+            // 2. Comprehensive Cleanup in Shared Schemas (Radius + Management)
+            // We wrap this in runWithTenant with isInsideTransaction: true to avoid the extension's deadlock
+            await runWithTenant({ tenantId, schema: schemaName, isInsideTransaction: true }, async () => {
+                await prisma.$transaction(async (tx: any) => {
+                    const prefix = `t${tenantId}_%`;
 
-                if (tunnelIds.length > 0) {
-                    await (tx as any).vpnTrafficLog.deleteMany({
-                        where: { tunnelId: { in: tunnelIds } }
+                    // Cleanup Radius records (These don't have FKs to Tenant but are tenant-specific)
+                    // Prefixo: t22b33f01-6b5e-465a-a5b3-dcc53d982302_%
+                    await tx.$executeRawUnsafe(`DELETE FROM radcheck WHERE username LIKE $1`, prefix);
+                    await tx.$executeRawUnsafe(`DELETE FROM radreply WHERE username LIKE $1`, prefix);
+                    await tx.$executeRawUnsafe(`DELETE FROM radacct WHERE username LIKE $1`, prefix);
+
+                    // FIX P2003: Manually delete traffic logs (Sometimes cascade misses depending on DB migration state)
+                    const tunnels = await (tx as any).vpnTunnel.findMany({
+                        where: { tenantId },
+                        select: { id: true }
                     });
-                }
+                    const tunnelIds = tunnels.map((t: any) => t.id);
 
-                // Ensure record exists before deleting
-                const toDelete = await (tx as any).tenant.findUnique({ where: { id: tenantId } });
-                if (toDelete) {
+                    if (tunnelIds.length > 0) {
+                        await (tx as any).vpnTrafficLog.deleteMany({
+                            where: { tunnelId: { in: tunnelIds } }
+                        });
+                    }
+
+                    // Delete the Tenant (Cascading deletes handle Users, VpnTunnels, Nas, Subscription, etc)
                     await (tx as any).tenant.delete({
                         where: { id: tenantId }
                     });
-                }
-            }, { timeout: 20000 });
+                }, { timeout: 30000 });
+            });
 
             revalidatePath("/saas-admin/tenants");
             return { success: true };
         } catch (error: unknown) {
-            console.error("Error deleting tenant:", error);
-            console.error("Error deleting tenant:", error);
-            const errorMessage = error instanceof Error ? error.message : "Failed to delete tenant";
-            return { error: `Erro ao deletar: ${errorMessage}` };
+            console.error("[DeleteTenant] Fatal Error:", error);
+            const errorMessage = error instanceof Error ? error.message : "Erro desconhecido";
+            return { error: `Erro ao deletar provedor: ${errorMessage}` };
         }
     }
 );

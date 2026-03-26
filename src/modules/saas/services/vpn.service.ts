@@ -112,12 +112,15 @@ export class VpnService {
     static async getVpnQuota(tenantId: string, tx?: PrismaTx) {
         const db = tx || prisma;
 
-        // Buscar subscription e plano do tenant
+        // Buscar subscription e plano do tenant, incluindo overrides no tenant
         const subscription = await (db as any).subscription.findUnique({
             where: { tenantId },
             include: {
                 plan: true,
-                downgradeTargetPlan: true
+                downgradeTargetPlan: true,
+                tenant: {
+                    select: { extraVpns: true }
+                }
             }
         });
 
@@ -126,7 +129,10 @@ export class VpnService {
         }
 
         const used = await this.countActiveVpns(tenantId, db);
-        const limit = subscription.plan.vpnLimit || 1;
+        const planLimit = subscription.plan.vpnLimit || 1;
+        const extraLimit = subscription.tenant?.extraVpns || 0;
+        const limit = planLimit + extraLimit;
+        
         const available = Math.max(0, limit - used);
 
         const hasScheduledDowngrade = !!subscription.downgradeScheduledAt;
@@ -206,7 +212,7 @@ export class VpnService {
                 if (excessCount > 0) {
                     // Desativar as VPNs mais antigas
                     const vpnsToDeactivate = activeVpns.slice(0, excessCount);
-                    const idsToDeactivate = vpnsToDeactivate.map(v => v.id);
+                    const idsToDeactivate = vpnsToDeactivate.map((v: any) => v.id);
 
                     await prisma.vpnTunnel.updateMany({
                         where: {
@@ -248,11 +254,17 @@ export class VpnService {
         tx?: PrismaTx,
         name = "Router Principal",
         type: "ROUTER" | "MIKROTIK" | "MOBILE" | "PC" = "ROUTER",
-        serverId?: string
+        serverId?: string,
+        protocol: "WIREGUARD" | "L2TP" | "SSTP" = "WIREGUARD"
     ) {
         const db = tx || prisma;
         try {
-            // Check if Main Router already exists to avoid duplicates if called idempotently
+            // 0. Validar Quota antes de começar (somente se vinculado a um tenant)
+            if (tenantId) {
+                await this.validateVpnQuota(tenantId, db);
+            }
+
+            // 1. Check if Main Router already exists
             if (type === "ROUTER" && tenantId) {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const existing = await (db as any).vpnTunnel.findFirst({
@@ -300,7 +312,19 @@ export class VpnService {
             }
 
 
-            const keys = this.generateKeypair();
+            let keys = null;
+            let vpnUsername = null;
+            let vpnPassword = null;
+
+            if (protocol === "WIREGUARD") {
+                keys = this.generateKeypair();
+            } else {
+                // L2TP/SSTP Logic
+                const { VpnKeyService } = require("../vpn-key.service");
+                vpnUsername = `vpn-${Math.random().toString(36).slice(-8)}`;
+                const rawPassword = Math.random().toString(36).slice(-12) + "!";
+                vpnPassword = VpnKeyService.encrypt(rawPassword);
+            }
 
             const internalIp = await this.allocateIp(db as any);
 
@@ -313,8 +337,11 @@ export class VpnService {
                     serverId: server.id,
                     internalIp,
                     subnetCidr: "32",
-                    clientPublicKey: keys.publicKey,
-                    clientPrivateKey: keys.privateKey,
+                    protocol,
+                    clientPublicKey: keys?.publicKey || null,
+                    clientPrivateKey: keys?.privateKey || null,
+                    vpnUsername,
+                    vpnPassword,
                     isActive: true,
                     name,
                     type: type as any
@@ -383,7 +410,7 @@ export class VpnService {
         if (!tunnel) return;
 
         // Limpeza Total: Se for um túnel de ROUTER, pode haver um NAS associado
-        await prisma.$transaction(async (tx) => {
+        await prisma.$transaction(async (tx: any) => {
             // 1. Remover NAS se existir (baseado no IP interno da VPN)
             await tx.nas.deleteMany({
                 where: { nasname: tunnel.internalIp, tenantId: tunnel.tenantId }
@@ -398,14 +425,13 @@ export class VpnService {
 
     }
 
-    /**
-     * Cria um novo túnel para um dispositivo específico
-     * @param tenantId ID do tenant
-     * @param name Nome do dispositivo
-     * @param type Tipo do dispositivo (MOBILE ou PC)
-     * @param serverId ID do servidor VPN específico (opcional)
-     */
-    static async createDeviceTunnel(tenantId: string | undefined, name: string, type: "MOBILE" | "PC" | "MIKROTIK", serverId?: string) {
-        return await this.provisionForTenant(tenantId, undefined, name, type, serverId);
+    static async createDeviceTunnel(
+        tenantId: string | undefined, 
+        name: string, 
+        type: "MOBILE" | "PC" | "MIKROTIK", 
+        serverId?: string,
+        protocol: "WIREGUARD" | "L2TP" | "SSTP" = "WIREGUARD"
+    ) {
+        return await this.provisionForTenant(tenantId, undefined, name, type, serverId, protocol);
     }
 }

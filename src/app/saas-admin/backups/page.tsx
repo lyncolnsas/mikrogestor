@@ -1,19 +1,23 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { getBackupsAction, createBackupAction, downloadBackupAction } from "@/modules/saas/actions/backup.actions";
+import { getBackupsAction, createBackupAction, restoreBackupAction, uploadRestoreAction } from "@/modules/saas/actions/backup.actions";
 import { BackupFile } from "@/modules/saas/services/backup.service";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Download, Database, Plus } from "lucide-react";
+import { Loader2, Download, Database, Plus, RotateCcw, Upload } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { toast } from "sonner";
+import { useRef } from "react";
 
 export default function BackupsPage() {
     const [backups, setBackups] = useState<BackupFile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isCreating, startTransition] = useTransition();
+    const [isRestoring, setIsRestoring] = useState<string | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         loadBackups();
@@ -42,49 +46,78 @@ export default function BackupsPage() {
             try {
                 const response = await createBackupAction();
                 if (response.error) {
-                    alert(`Erro ao criar backup: ${response.error}`);
+                    toast.error(`Erro ao criar backup: ${response.error}`);
                 } else {
+                    toast.success("Backup criado com sucesso!");
                     await loadBackups();
                 }
             } catch (error) {
                 console.error("Failed to create backup", error);
-                alert("Erro ao criar backup");
+                toast.error("Erro ao criar backup");
             }
         });
     };
 
-    const handleDownload = async (filename: string) => {
+    const handleDownload = (filename: string) => {
+        // Redireciona para o novo endpoint de streaming que lida com arquivos grandes sem travar a memória
+        window.location.href = `/api/saas/backups/${encodeURIComponent(filename)}`;
+    };
+
+    const handleRestore = async (filename: string) => {
+        const confirmResult = window.confirm(
+            `ATENÇÃO: Você está prestes a restaurar o backup "${filename}". \n\nIsso irá SOBRESCREVER todos os dados atuais do banco de dados (Usuários, Clientes, Financeiro). \n\nEsta operação não pode ser desfeita. Deseja continuar?`
+        );
+
+        if (!confirmResult) return;
+
+        setIsRestoring(filename);
         try {
-            const response = await downloadBackupAction(filename);
-
-            if (response.error || !response.data) {
-                alert(`Erro ao baixar backup: ${response.error || "Dados não encontrados"}`);
-                return;
+            const response = await restoreBackupAction(filename);
+            if (response.error) {
+                toast.error(`Falha na restauração: ${response.error}`);
+            } else {
+                toast.success("Sistema restaurado com sucesso! Recomendamos fazer login novamente.");
+                // Opcional: recarregar a página para limpar estados antigos de memória
+                setTimeout(() => window.location.reload(), 2000);
             }
-
-            const { content, filename: name } = response.data;
-
-            // Create a blob and trigger download
-            // Note: Content is base64 string
-            const byteCharacters = atob(content);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: "application/sql" });
-
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = name;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
         } catch (error) {
-            console.error("Failed to download backup", error);
-            alert("Erro ao baixar backup");
+            console.error("Restore error:", error);
+            toast.error("Ocorreu um erro crítico durante a restauração.");
+        } finally {
+            setIsRestoring(null);
+        }
+    };
+
+    const handleUploadRestore = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const confirmResult = window.confirm(
+            `ATENÇÃO: Você está prestes a SUBIR e RESTAURAR o arquivo "${file.name}". \n\nIsso irá SOBRESCREVER todos os dados atuais. Deseja continuar?`
+        );
+        if (!confirmResult) {
+            e.target.value = "";
+            return;
+        }
+
+        setIsRestoring("upload");
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+            const response = await uploadRestoreAction(formData);
+            if (response.error) {
+                toast.error(`Falha no upload: ${response.error}`);
+            } else {
+                toast.success("Sistema restaurado via upload com sucesso!");
+                setTimeout(() => window.location.reload(), 2000);
+            }
+        } catch (error) {
+            console.error("Upload error:", error);
+            toast.error("Erro no processo de upload.");
+        } finally {
+            setIsRestoring(null);
+            if (fileInputRef.current) fileInputRef.current.value = "";
         }
     };
 
@@ -103,30 +136,47 @@ export default function BackupsPage() {
                     <h1 className="text-3xl font-bold tracking-tight">Backups do Sistema</h1>
                     <p className="text-muted-foreground">Gerencie backups automáticos e manuais do banco de dados.</p>
                 </div>
-                <Button onClick={handleCreateBackup} disabled={isCreating}>
-                    {isCreating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-                    Novo Backup
-                </Button>
+                <div className="flex gap-2">
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleUploadRestore}
+                        accept=".sql"
+                        className="hidden"
+                    />
+                    <Button 
+                        variant="outline" 
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={!!isRestoring}
+                    >
+                        {isRestoring === "upload" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                        Subir e Restaurar
+                    </Button>
+                    <Button onClick={handleCreateBackup} disabled={isCreating || !!isRestoring}>
+                        {isCreating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+                        Novo Backup
+                    </Button>
+                </div>
             </div>
 
-            <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <Database className="h-5 w-5" />
-                        Histórico de Backups
+            <Card className="border-destructive/20">
+                <CardHeader className="bg-destructive/5">
+                    <CardTitle className="flex items-center gap-2 text-destructive">
+                        <RotateCcw className="h-5 w-5" />
+                        Zona de Restauração
                     </CardTitle>
                     <CardDescription>
-                        Lista de todos os backups gerados pelo sistema.
+                        Restaurar um backup substituirá TODOS os dados atuais do sistema. Use com cautela.
                     </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="pt-6">
                     {isLoading ? (
                         <div className="flex justify-center p-8">
                             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                         </div>
                     ) : backups.length === 0 ? (
                         <div className="text-center p-8 text-muted-foreground">
-                            Nenhum backup encontrado.
+                            Nenhum backup disponível para restauração.
                         </div>
                     ) : (
                         <Table>
@@ -143,9 +193,9 @@ export default function BackupsPage() {
                                 {backups.map((backup) => (
                                     <TableRow key={backup.name}>
                                         <TableCell>
-                                            {format(backup.createdAt, "dd 'de' MMMM 'às' HH:mm", { locale: ptBR })}
+                                            {format(backup.createdAt, "dd/MM/yyyy HH:mm")}
                                         </TableCell>
-                                        <TableCell className="font-mono text-xs">{backup.name}</TableCell>
+                                        <TableCell className="font-mono text-xs max-w-[200px] truncate">{backup.name}</TableCell>
                                         <TableCell>{formatBytes(backup.size)}</TableCell>
                                         <TableCell>
                                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${backup.trigger?.startsWith("Auto")
@@ -155,14 +205,28 @@ export default function BackupsPage() {
                                                 {backup.trigger || "Desconhecido"}
                                             </span>
                                         </TableCell>
-                                        <TableCell className="text-right">
+                                        <TableCell className="text-right space-x-2">
                                             <Button
                                                 variant="outline"
                                                 size="sm"
                                                 onClick={() => handleDownload(backup.name)}
+                                                disabled={!!isRestoring}
                                             >
                                                 <Download className="mr-2 h-3 w-3" />
                                                 Baixar
+                                            </Button>
+                                            <Button
+                                                variant="destructive"
+                                                size="sm"
+                                                onClick={() => handleRestore(backup.name)}
+                                                disabled={!!isRestoring}
+                                            >
+                                                {isRestoring === backup.name ? (
+                                                    <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                                                ) : (
+                                                    <RotateCcw className="mr-2 h-3 w-3" />
+                                                )}
+                                                Restaurar
                                             </Button>
                                         </TableCell>
                                     </TableRow>

@@ -67,6 +67,7 @@ import { Users2, ShieldCheck, ShieldAlert } from "lucide-react"
 export default function ProviderDashboard() {
     const [stats, setStats] = React.useState<{
         activeCustomers: string;
+        totalActive: string;
         monthlyRevenue: string;
         overdueAmount: string;
         openOrders: string;
@@ -107,7 +108,7 @@ export default function ProviderDashboard() {
             setDebtors(d)
             setNetworkStatus({
                 tunnel: net?.tunnel ? { ...net.tunnel, status: net.tunnel.status as "online" | "offline" } : null,
-                nas: net?.nas?.map(n => ({ ...n, id: String(n.id), status: n.status as "online" | "offline" })) || []
+                nas: net?.nas?.map((n: any) => ({ ...n, id: String(n.id), status: n.status as "online" | "offline" })) || []
             })
         } catch (error) {
             console.error("Failed to load dashboard statistics", error)
@@ -170,10 +171,13 @@ export default function ProviderDashboard() {
                     trend="up"
                 />
 
-                {/* Plan Usage Card */}
-                {/* <NeonCard variant="primary" className="relative overflow-hidden group">
-                    <NeonCardContent className="p-6"> ... </NeonCardContent>
-                </NeonCard> */}
+                <KpiCard
+                    title="Contratos Ativos"
+                    value={stats?.totalActive || (isLoading ? "..." : "0")}
+                    delta={stats?.customerDelta || "+0%"}
+                    icon={<Users2 className="text-violet-500" />}
+                    trend="up"
+                />
 
                 {/* Insolvency Card */}
                 <NeonCard variant="destructive" className="relative overflow-hidden group hover:scale-[1.02] transition-transform">

@@ -15,79 +15,67 @@ export const getServiceStatus = protectedAction(
     ["SUPER_ADMIN", "ISP_ADMIN"],
     async () => {
         const start = Date.now();
+        
+        // Default structure to ensure no undefined property access in frontend
+        const result: ServiceStatusData = {
+            whatsapp: { status: "ONLINE", uptime: "99.9%", latency: "120ms" },
+            radius: { status: "ONLINE", uptime: "100%", latency: "15ms", activeSessions: 0 },
+            database: { status: "ONLINE", uptime: "99.95%", latency: "0ms" },
+            vpn: { status: "ONLINE", uptime: "99.9%", latency: "0s ago", connectedPeers: 0, lastSync: null }
+        };
 
         // 1. Database Check (Simple Ping)
+        let dbLatency = 0;
         try {
             await prisma.$queryRaw`SELECT 1`;
+            dbLatency = Date.now() - start;
+            result.database.latency = `${dbLatency}ms`;
         } catch (e) {
             console.error("DB Health Check Failed", e);
-            return {
-                database: { status: "OFFLINE", uptime: "0%", latency: "0ms" }
-            };
+            result.database.status = "OFFLINE";
+            result.database.latency = "ERR";
+            // If DB is offline, we can't reliably fetch other stats, return early with defaults
+            return result;
         }
-        const dbLatency = Date.now() - start;
 
         // 2. VPN Stats
-        // Consider "Active" if handshake was within last 2 minutes (120s)
-        const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
-
-        const activeTunnels = await prisma.vpnTunnel.count({
-            where: {
-                lastHandshake: {
-                    gte: twoMinutesAgo
-                }
-            }
-        });
-
-        const vpnServer = await prisma.vpnServer.findFirst({
-            orderBy: { updatedAt: 'desc' }
-        });
-
-        const vpnLatency = vpnServer ? Math.abs(Date.now() - vpnServer.updatedAt.getTime()) : 0;
-        // If server hasn't updated in 5 mins, mark as WARNING/OFFLINE
-        const isVpnOnline = vpnLatency < 5 * 60 * 1000;
-
-        // 3. Radius Stats
-        // Count RadAcct sessions where acctstoptime is NULL
-        // Note: We need to use prisma extension or raw query since schemas might be tricky
-        // But we have models mapped to "radius" schema so it should work if search_path is good.
-        let activeRadius = 0;
         try {
-            activeRadius = await prisma.radAcct.count({
-                where: {
-                    acctstoptime: null
-                }
+            const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+            const activeTunnels = await prisma.vpnTunnel.count({
+                where: { lastHandshake: { gte: twoMinutesAgo } }
             });
-        } catch (e) {
-            console.warn("Radius Stats Failed", e);
-        }
 
-        // Return Data
-        return {
-            whatsapp: {
-                status: "ONLINE",
-                uptime: "99.9%",
-                latency: "120ms" // Mocked for now (Evolution API external)
-            },
-            radius: {
-                status: "ONLINE",
-                uptime: "100%",
-                latency: "15ms",
-                activeSessions: activeRadius
-            },
-            database: {
-                status: "ONLINE",
-                uptime: "99.95%",
-                latency: `${dbLatency}ms`
-            },
-            vpn: {
+            const vpnServer = await prisma.vpnServer.findFirst({
+                orderBy: { updatedAt: 'desc' }
+            });
+
+            const vpnLatency = vpnServer ? Math.abs(Date.now() - vpnServer.updatedAt.getTime()) : 0;
+            const isVpnOnline = vpnLatency < 5 * 60 * 1000;
+
+            result.vpn = {
                 status: isVpnOnline ? "ONLINE" : "OFFLINE",
                 uptime: "99.9%",
                 latency: `${Math.round(vpnLatency / 1000)}s ago`,
                 connectedPeers: activeTunnels,
                 lastSync: vpnServer?.updatedAt || null
-            }
-        };
+            };
+        } catch (e) {
+            console.warn("VPN Stats Failed", e);
+            result.vpn.status = "OFFLINE";
+        }
+
+        // 3. Radius Stats
+        try {
+            const activeRadius = await prisma.radAcct.count({
+                where: { acctstoptime: null }
+            });
+            result.radius.activeSessions = activeRadius;
+        } catch (e) {
+            console.warn("Radius Stats Failed", e);
+            result.radius.status = "OFFLINE";
+        }
+
+        return result;
     }
 );
 

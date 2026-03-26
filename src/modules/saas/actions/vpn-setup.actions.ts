@@ -26,9 +26,9 @@ export const getVpnServerSetupScript = protectedAction(
 # Servidor: ${server.name}
 # ==============================================================================
 
-# 1. Instalar WireGuard
-echo "[Config] Instalando WireGuard..."
-apt-get update && apt-get install -y wireguard curl jq
+# 1. Instalar Bibliotecas (WireGuard + L2TP/IPsec)
+echo "[Config] Instalando WireGuard e L2TP/IPsec..."
+apt-get update && apt-get install -y wireguard xl2tpd strongswan curl jq
 
 # 2. Geração de Chaves e Registro
 WG_DIR="/etc/wireguard"
@@ -105,13 +105,13 @@ curl -s --connect-timeout 5 -X POST "$STATUS_URL" \
 # ==============================================================================
 # FASE 2: SINCRONIZAR PEERS (CONFIGURAÇÃO)
 # ==============================================================================
-echo "[$(date)] Sincronizando Peers VPN..."
+echo "[$(date)] Sincronizando VPN (WireGuard & L2TP)..."
 
 # Detectar IP Público atual para reportar ao painel
 CURRENT_IP=$(curl -s --connect-timeout 5 https://ifconfig.me)
 PUB_KEY_LOCAL=$(cat /etc/wireguard/public.key)
 
-# Reportar IP e Chave ao Sincronizar (Garante que o painel tenha o IP atualizado se houver mudança)
+# Reportar IP e Chave ao Sincronizar
 if [ ! -z "$CURRENT_IP" ]; then
     echo "[$(date)] Reportando IP Atual: $CURRENT_IP"
     curl -s -X POST "${apiUrl}/api/saas/vpn-sync" \
@@ -120,14 +120,31 @@ if [ ! -z "$CURRENT_IP" ]; then
 fi
 
 DATA=$(curl -s "$SYNC_URL")
-
-
 if [ $? -ne 0 ] || [ -z "$DATA" ]; then
     echo "Erro ao buscar dados"
     exit 1
 fi
 
-# Sincronização automática da Chave Privada do Servidor
+# 1. SINCRONIZAR IPSEC PSK (L2TP)
+IPSEC_PSK=$(echo "$DATA" | jq -r '.ipsecPsk // empty')
+if [ ! -z "$IPSEC_PSK" ] && [ "$IPSEC_PSK" != "null" ]; then
+    echo "%any %any : PSK \"$IPSEC_PSK\"" > /etc/ipsec.secrets
+    # Reiniciar ipsec se necessário (simplificado: sempre aplica)
+    ipsec rereadsecrets >/dev/null 2>&1
+fi
+
+# 2. SINCRONIZAR CREDENCIAIS L2TP (chap-secrets)
+echo "# L2TP Credentials - Auto-generated" > /etc/ppp/chap-secrets
+echo "$DATA" | jq -c '.peers[] | select(.protocol == "L2TP" or .protocol == "SSTP")' | while read peer; do
+    USER=$(echo $peer | jq -r .vpnUsername)
+    PASS=$(echo $peer | jq -r .vpnPassword)
+    IP=$(echo $peer | jq -r .internalIp)
+    if [ "$USER" != "null" ] && [ "$PASS" != "null" ]; then
+        echo "\"$USER\" * \"$PASS\" $IP" >> /etc/ppp/chap-secrets
+    fi
+done
+
+# 3. SINCRONIZAR WIRE GUARD PRIV KEY
 NEW_PRIV_KEY=$(echo "$DATA" | jq -r '.serverPrivateKey // empty')
 if [ ! -z "$NEW_PRIV_KEY" ] && [ "$NEW_PRIV_KEY" != "null" ]; then
     CURRENT_PRIV_KEY=$(cat $PRIV_KEY_PATH)
@@ -144,20 +161,23 @@ cat << CONFIG > $CONFIG_PATH
 [Interface]
 PrivateKey = $(cat $PRIV_KEY_PATH)
 ListenPort = $(echo $DATA | jq -r .listenPort)
+Address = 10.255.0.1/16
 
-# Peers
+# Peers (WireGuard only)
 CONFIG
 
-echo "$DATA" | jq -c '.peers[]' | while read peer; do
+echo "$DATA" | jq -c '.peers[] | select(.protocol == "WIREGUARD" or .protocol == null)' | while read peer; do
     PUB=$(echo $peer | jq -r .publicKey)
     IPS=$(echo $peer | jq -r .allowedIps)
-    cat << PEER >> $CONFIG_PATH
+    if [ "$PUB" != "null" ]; then
+        cat << PEER >> $CONFIG_PATH
 
 [Peer]
 # Tenant: $(echo $peer | jq -r .tenant)
 PublicKey = $PUB
 AllowedIPs = $IPS
 PEER
+    fi
 done
 
 # Aplicar Configuração
@@ -174,7 +194,63 @@ EOF
 
 chmod +x /usr/local/bin/wg-sync.sh
 
-# 4. Configuração Inicial e Interface UP
+# 4. Configuração de Rede e Forwarding
+echo "net.ipv4.ip_forward=1" > /etc/sysctl.d/99-vpn.conf
+sysctl -p /etc/sysctl.d/99-vpn.conf
+
+# 5. Configuração Básica L2TP/IPsec (Se ainda não configurado)
+if [ ! -f "/etc/ipsec.conf.bak" ]; then
+    cp /etc/ipsec.conf /etc/ipsec.conf.bak
+    cat << XL2TP > /etc/xl2tpd/xl2tpd.conf
+[global]
+port = 1701
+
+[lns default]
+ip range = 10.255.250.2-10.255.250.254
+local ip = 10.255.250.1
+require chap = yes
+refuse pap = yes
+require authentication = yes
+name = MikrogestorVPN
+ppp debug = yes
+pppoptfile = /etc/ppp/options.xl2tpd
+length bit = yes
+XL2TP
+
+    cat << PPP > /etc/ppp/options.xl2tpd
+require-chap
+refuse-pap
+ms-dns 1.1.1.1
+ms-dns 8.8.8.8
+nodefaultroute
+lock
+nobsdcomp
+mtu 1280
+mru 1280
+proxyarp
+PPP
+
+    cat << IPSEC > /etc/ipsec.conf
+config setup
+    uniqueids=no
+
+conn L2TP-IPsec
+    type=transport
+    authby=secret
+    pfs=no
+    rekey=no
+    keyingtries=3
+    left=%any
+    leftprotoport=17/1701
+    right=%any
+    rightprotoport=17/%any
+    auto=add
+IPSEC
+fi
+
+# 6. Inicialização e Interface UP
+systemctl enable strongswan-starter xl2tpd
+systemctl restart strongswan-starter xl2tpd
 /usr/local/bin/wg-sync.sh
 wg-quick up wg0 2>/dev/null || wg-quick restart wg0
 
@@ -190,5 +266,32 @@ echo "==========================================================================
 `;
 
         return script;
+    }
+);
+
+/**
+ * Gets all VPN tunnels for the current tenant.
+ */
+export const getTenantVpnTunnelsAction = protectedAction(
+    ["ISP_ADMIN", "SUPER_ADMIN"],
+    async (inputTenantId: string | null, session) => {
+        const tenantId = inputTenantId || session.tenantId;
+
+        if (!tenantId || tenantId === "system") {
+            throw new Error("ID do Provedor não identificado.");
+        }
+
+        return await prisma.vpnTunnel.findMany({
+            where: { tenantId },
+            include: {
+                server: {
+                    select: {
+                        name: true,
+                        publicEndpoint: true
+                    }
+                }
+            },
+            orderBy: { createdAt: "desc" }
+        });
     }
 );

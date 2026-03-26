@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/prisma";
 export const dynamic = "force-dynamic";
-import { CustomerStatus } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +24,7 @@ import { serializeDecimal } from "@/lib/utils";
 import { SpeedTestButton } from "@/components/subscriber/speed-test-button";
 import { GlobalNotificationListener } from "@/components/notifications/global-notification-listener";
 import { getMyTenantNotificationsAction, markTenantNotificationAsReadAction } from "@/modules/customers/actions/notification.actions";
+import { getCustomerUptimeAction } from "@/modules/network/actions/uptime.actions";
 
 export default async function SubscriberDashboard() {
     const session = await getSession();
@@ -32,6 +32,10 @@ export default async function SubscriberDashboard() {
     if (!session || session.role !== "SUBSCRIBER" || !session.tenantSlug || !session.tenantId) {
         redirect("/login");
     }
+
+    // Fetch Uptime Data
+    const uptimeResult = await getCustomerUptimeAction(session.userId);
+    const uptime = uptimeResult.data;
 
     // Determine Schema
     const schema = `tenant_${session.tenantSlug.replaceAll('-', '_')}`;
@@ -68,7 +72,7 @@ export default async function SubscriberDashboard() {
     if (!customerData) return <div>Nenhum dado de assinante encontrado.</div>;
     const customer = serializeDecimal(customerData);
 
-    const isActive = customer.status === CustomerStatus.ACTIVE;
+    const isActive = customer.status === "ACTIVE";
     const addr = customer.address as any || {};
     const isProfileIncomplete = !customer.phone || !addr.street || !addr.city;
 
@@ -88,13 +92,13 @@ export default async function SubscriberDashboard() {
                     <p className="text-muted-foreground mt-1">Bem-vindo à sua Central do Assinante.</p>
                 </div>
                 <div className="flex items-center gap-3 bg-card p-2 pr-4 rounded-2xl border shadow-sm">
-                    <div className={`h-10 w-10 rounded-xl flex items-center justify-center ${isActive ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
-                        <Wifi className={`h-5 w-5 ${isActive ? 'text-emerald-500' : 'text-red-500'}`} />
+                    <div className={`h-10 w-10 rounded-xl flex items-center justify-center ${uptime?.online ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
+                        <Wifi className={`h-5 w-5 ${uptime?.online ? 'text-emerald-500' : 'text-red-500'}`} />
                     </div>
                     <div>
                         <p className="text-[10px] uppercase font-black text-muted-foreground">Status da Conexão</p>
-                        <p className={`text-sm font-bold ${isActive ? 'text-emerald-500' : 'text-red-500'}`}>
-                            {isActive ? 'Conectado / Ativo' : 'Bloqueado / Pendente'}
+                        <p className={`text-sm font-bold ${uptime?.online ? 'text-emerald-500' : 'text-red-500'}`}>
+                            {uptime?.online ? `Online há ${uptime?.uptime}` : `Offline (${uptime?.uptime || 'Sem sinal'})`}
                         </p>
                     </div>
                 </div>

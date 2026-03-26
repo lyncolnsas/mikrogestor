@@ -12,17 +12,17 @@ sql {
     password = "mikrogestor_secure_2026"
     radius_db = "mikrogestor_prod"
 
-    acct_table1 = "radacct"
-    acct_table2 = "radacct"
-    postauth_table = "radpostauth"
-    authcheck_table = "radcheck"
-    authreply_table = "radreply"
-    groupcheck_table = "radgroupcheck"
-    groupreply_table = "radgroupreply"
-    usergroup_table = "radusergroup"
+    acct_table1 = "management.radacct"
+    acct_table2 = "management.radacct"
+    postauth_table = "management.radpostauth"
+    authcheck_table = "management.radcheck"
+    authreply_table = "management.radreply"
+    groupcheck_table = "management.radgroupcheck"
+    groupreply_table = "management.radgroupreply"
+    usergroup_table = "management.radusergroup"
 
     read_clients = yes
-    client_table = "nas"
+    client_table = "management.nas"
     
     # Missing group_attribute for PostgreSQL queries
     group_attribute = "SQL-Group"

@@ -66,6 +66,7 @@ services:
     volumes:
       - ./docker/wireguard:/etc/wireguard
       - ./storage:/app/storage
+      - ./public/uploads:/app/public/uploads
       - ./scripts/docker-entrypoint.sh:/entrypoint-override.sh
     entrypoint: ["/bin/sh", "/entrypoint-override.sh"]
     cap_add:

@@ -1,6 +1,6 @@
 "use client";
-
-import { usePathname } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
+import { useState, useEffect } from "react";
 import {
     Bell,
     Search,
@@ -25,29 +25,45 @@ import { logoutUser } from "@/actions/auth";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
-import { useState, useEffect } from "react";
 import { getLandingConfigAction } from "@/modules/saas/actions/landing.actions";
+import { getMySaasNotificationsAction } from "@/modules/saas/actions/notification.actions";
 
 interface ISPHeaderProps {
     onOpenMobileMenu?: () => void;
 }
 
 export function ISPHeader({ onOpenMobileMenu }: ISPHeaderProps) {
+    const router = useRouter();
     const pathname = usePathname();
     const [branding, setBranding] = useState<{ logoUrl?: string | null, tenantName?: string } | null>(null);
+    const [searchQuery, setSearchQuery] = useState("");
+    const [unreadCount, setUnreadCount] = useState(0);
 
     useEffect(() => {
-        async function loadBranding() {
-            const result = await getLandingConfigAction({});
-            if (result.data) {
+        async function loadData() {
+            // Load Branding
+            const brandResult = await getLandingConfigAction({});
+            if (brandResult.data) {
                 setBranding({
-                    logoUrl: result.data.logoUrl,
-                    tenantName: (result.data as any).tenant?.name || "MikroGestor"
+                    logoUrl: brandResult.data.logoUrl,
+                    tenantName: (brandResult.data as any).tenant?.name || "MikroGestor"
                 });
             }
+
+            // Load Notifications Count
+            const notifications = await getMySaasNotificationsAction({});
+            if (Array.isArray(notifications)) {
+                setUnreadCount(notifications.length);
+            }
         }
-        loadBranding();
+        loadData();
     }, []);
+
+    const handleSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter' && searchQuery.trim()) {
+            router.push(`/customers?search=${encodeURIComponent(searchQuery)}`);
+        }
+    };
 
     // ... breadcrumbs logic ...
     const breadcrumbs = pathname
@@ -112,24 +128,47 @@ export function ISPHeader({ onOpenMobileMenu }: ISPHeaderProps) {
             </div>
 
             <div className="flex items-center gap-4">
-                {/* Barra de Busca - Apenas Visual por enquanto */}
-                <div className="relative hidden md:block">
-                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                {/* Barra de Busca - Funcional */}
+                <div className="relative hidden md:flex items-center">
+                    <button 
+                        type="button"
+                        onClick={() => searchQuery.trim() && router.push(`/customers?search=${encodeURIComponent(searchQuery)}`)}
+                        className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground hover:text-primary transition-colors cursor-pointer z-20 flex items-center justify-center bg-transparent border-none p-0"
+                    >
+                        <Search className="h-4 w-4" />
+                    </button>
                     <input
                         type="search"
-                        placeholder="Buscar..."
-                        className="h-9 w-64 rounded-full border border-border bg-muted/50 pl-9 pr-4 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all"
+                        placeholder="Buscar cliente..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onKeyDown={handleSearch}
+                        className="h-9 w-64 rounded-full border border-border bg-muted/50 pl-10 pr-4 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all font-medium"
                     />
                 </div>
-
+                
                 {/* Notificações */}
-                <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-primary hover:bg-muted/50">
+                <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="relative text-muted-foreground hover:text-primary hover:bg-muted/50"
+                    onClick={() => router.push('/notifications')}
+                >
                     <Bell className="h-5 w-5" />
-                    <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-destructive ring-2 ring-background animate-pulse"></span>
+                    {unreadCount > 0 && (
+                        <span className="absolute right-1.5 top-1.5 h-4 w-4 rounded-full bg-destructive flex items-center justify-center text-[10px] font-black text-white ring-2 ring-background animate-in zoom-in duration-300">
+                            {unreadCount > 9 ? "+9" : unreadCount}
+                        </span>
+                    )}
                 </Button>
 
-                {/* Ajuda */}
-                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary hover:bg-muted/50">
+                {/* Ajuda/Guia */}
+                <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="text-muted-foreground hover:text-primary hover:bg-muted/50"
+                    onClick={() => router.push('/guia')}
+                >
                     <HelpCircle className="h-5 w-5" />
                 </Button>
 

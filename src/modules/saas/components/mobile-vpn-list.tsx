@@ -67,9 +67,9 @@ export interface MobilePeer {
     server: {
         publicEndpoint: string;
         listenPort: number;
-        publicKey: string;
+        publicKey: string | null;
     };
-    clientPrivateKey: string;
+    clientPrivateKey: string | null;
     type: "MOBILE" | "PC" | "ROUTER" | "MIKROTIK";
 }
 
@@ -240,7 +240,7 @@ export function MobileVpnList({ peers }: MobileVpnListProps) {
                     </DialogHeader>
                     <div className="flex flex-col items-center justify-center p-6 bg-white rounded-3xl">
                         {qrPeer && (() => {
-                            const isKeyValid = qrPeer.clientPrivateKey.length === 44 && qrPeer.clientPrivateKey.endsWith('=');
+                            const isKeyValid = qrPeer.clientPrivateKey && qrPeer.clientPrivateKey.length === 44 && qrPeer.clientPrivateKey.endsWith('=');
                             const endpoint = qrPeer.server.publicEndpoint && qrPeer.server.publicEndpoint.includes(":")
                                 ? qrPeer.server.publicEndpoint
                                 : qrPeer.server.publicEndpoint
@@ -248,12 +248,12 @@ export function MobileVpnList({ peers }: MobileVpnListProps) {
                                     : `IP_NAO_REPORTADO:${qrPeer.server.listenPort}`;
 
                             const wgConfig = `[Interface]
-PrivateKey = ${qrPeer.clientPrivateKey}
+PrivateKey = ${qrPeer.clientPrivateKey || 'CHAVE_PRIVADA_AUSENTE'}
 Address = ${qrPeer.internalIp}/32
 DNS = 1.1.1.1
 
 [Peer]
-PublicKey = ${qrPeer.server.publicKey}
+PublicKey = ${qrPeer.server.publicKey || 'CHAVE_PUBLICA_SERVIDOR_AUSENTE'}
 Endpoint = ${endpoint}
 AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 25`;

@@ -4,19 +4,7 @@
 import { prisma } from "@/lib/prisma";
 import { protectedAction } from "@/lib/api/action-wrapper";
 import * as z from "zod";
-// import { NotificationTarget, NotificationType } from "@prisma/client";
-
-// Workaround for undefined Enums from @prisma/client if generation failed
-const NotificationType = {
-    MODAL: "MODAL",
-    TOAST: "TOAST",
-    BANNER: "BANNER"
-} as const;
-
-const NotificationTarget = {
-    ALL: "ALL",
-    SPECIFIC: "SPECIFIC"
-} as const;
+import { NotificationTarget, NotificationType } from "@prisma/client";
 
 // Schema for creating a notification for subscribers
 const createTenantNotificationSchema = z.object({
@@ -35,8 +23,18 @@ const createTenantNotificationSchema = z.object({
 export const createTenantNotificationAction = protectedAction(
     ["ISP_ADMIN", "TECHNICIAN"],
     async (input, session) => {
-        const data = createTenantNotificationSchema.parse(input);
         const tenantId = session.tenantId!;
+        
+        // Check limit per tenant
+        const count = await prisma.tenantNotification.count({
+            where: { tenantId }
+        });
+
+        if (count >= 10) {
+            return { error: "LIMITE_ATINGIDO: Você atingiu o limite de 10 comunicados. Exclua algum para continuar." };
+        }
+
+        const data = createTenantNotificationSchema.parse(input);
 
         const notification = await prisma.tenantNotification.create({
             data: {

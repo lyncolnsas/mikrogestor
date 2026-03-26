@@ -12,6 +12,7 @@ import {
     Save,
     Loader2,
     CreditCard,
+    RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +53,28 @@ const financialSettingsSchema = z.object({
         asaas: gatewaySchema.optional(),
         mercadopago: gatewaySchema.optional(),
         pagseguro: gatewaySchema.optional(),
+        efi: gatewaySchema.extend({
+            clientId: z.string().optional(),
+            clientSecret: z.string().optional(),
+            sandbox: z.boolean().default(false),
+            certificate: z.string().optional(),
+        }).optional(),
+        iugu: gatewaySchema.extend({
+            accountId: z.string().optional(),
+        }).optional(),
+        galaxpay: gatewaySchema.extend({
+            hash: z.string().optional(),
+            id: z.string().optional(),
+        }).optional(),
+        cb: z.object({
+            enabled: z.boolean().default(false),
+            bank: z.string().optional(), // BB, CAIXA, ITAU, etc.
+            agencia: z.string().optional(),
+            conta: z.string().optional(),
+            dvConta: z.string().optional(),
+            convenio: z.string().optional(),
+            carteira: z.string().optional(),
+        }).optional(),
     }).optional(),
 });
 
@@ -96,6 +119,10 @@ export default function FinancialSettingsPage() {
                             asaas: { enabled: false, methods: [], ...gateways.asaas },
                             mercadopago: { enabled: false, methods: [], ...gateways.mercadopago },
                             pagseguro: { enabled: false, methods: [], ...gateways.pagseguro },
+                            efi: { enabled: false, methods: [], sandbox: false, ...gateways.efi },
+                            iugu: { enabled: false, methods: [], ...gateways.iugu },
+                            galaxpay: { enabled: false, methods: [], ...gateways.galaxpay },
+                            cb: { enabled: false, ...gateways.cb },
                         }
                     });
                 }
@@ -123,6 +150,25 @@ export default function FinancialSettingsPage() {
         } catch (error) {
             console.error(error);
             toast.error("Erro ao processar requisição");
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleSyncNetwork = async () => {
+        setIsSaving(true);
+        try {
+            const res = await fetch("/api/cron/network/sync-blocking", { method: "POST" });
+            const result = await res.json();
+            if (result.success) {
+                toast.success(`Sincronização concluída!`, {
+                    description: `${result.summary.totalBlocked} clientes bloqueados com sucesso.`
+                });
+            } else {
+                toast.error("Erro na sincronização");
+            }
+        } catch (error) {
+            toast.error("Erro ao comunicar com o servidor de Radius");
         } finally {
             setIsSaving(false);
         }
@@ -242,7 +288,19 @@ export default function FinancialSettingsPage() {
                                     className="h-12 rounded-xl border-border bg-background focus:border-amber-500 focus:ring-amber-500/20 max-w-[200px] font-mono text-lg"
                                     {...form.register("gracePeriod", { valueAsNumber: true })}
                                 />
-                                <p className="text-[11px] text-muted-foreground font-medium font-mono">Após {form.watch("gracePeriod")} dias de atraso, o cliente será bloqueado no Radius.</p>
+                                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-4 border-t border-border mt-4">
+                                    <p className="text-[11px] text-muted-foreground font-medium font-mono">Após {form.watch("gracePeriod")} dias de atraso, o cliente será bloqueado no Radius.</p>
+                                    <Button 
+                                        type="button" 
+                                        variant="outline" 
+                                        size="sm" 
+                                        className="gap-2 border-primary/20 text-primary hover:bg-primary/10 font-bold italic"
+                                        onClick={handleSyncNetwork}
+                                        disabled={isSaving}
+                                    >
+                                        <RefreshCw className={`h-3 w-3 ${isSaving ? 'animate-spin' : ''}`} /> SINCRO. REDE AGORA
+                                    </Button>
+                                </div>
                             </div>
                         </NeonCardContent>
                     </NeonCard>
@@ -333,7 +391,7 @@ export default function FinancialSettingsPage() {
                                         <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Email</Label>
                                         <Input
                                             placeholder="seuemail@loja.com"
-                                            className="h-11 bg-slate-50 dark:bg-slate-950"
+                                            className="h-11 bg-muted/20"
                                             {...form.register("gatewayConfig.pagseguro.email")}
                                         />
                                     </div>
@@ -341,7 +399,7 @@ export default function FinancialSettingsPage() {
                                         <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Token</Label>
                                         <Input
                                             placeholder="Ex: 948303..."
-                                            className="h-11 font-mono text-sm bg-slate-50 dark:bg-slate-950"
+                                            className="h-11 font-mono text-sm bg-muted/20"
                                             type="password"
                                             {...form.register("gatewayConfig.pagseguro.token")}
                                         />
@@ -353,7 +411,130 @@ export default function FinancialSettingsPage() {
                                 />
                             </div>
                         </IntegrationCard>
+
+                        {/* EFI / Gerencianet */}
+                        <IntegrationCard
+                            title="Efi Pay (Gerencianet)"
+                            description="Especialista em Pix e Boletos Registrados."
+                            logoUrl="/icons/efi.png"
+                            enabled={form.watch("gatewayConfig.efi.enabled") || false}
+                            onToggle={(val) => form.setValue("gatewayConfig.efi.enabled", val)}
+                        >
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Client ID</Label>
+                                        <Input placeholder="Client_Id_..." className="h-11 bg-muted/20" {...form.register("gatewayConfig.efi.clientId")} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Client Secret</Label>
+                                        <Input type="password" placeholder="Client_Secret_..." className="h-11 bg-muted/20" {...form.register("gatewayConfig.efi.clientSecret")} />
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Certificado (Base64)</Label>
+                                    <Input placeholder="-----BEGIN CERTIFICATE-----" className="h-11 font-mono text-xs bg-muted/20" {...form.register("gatewayConfig.efi.certificate")} />
+                                </div>
+                                <PaymentMethodsSelect
+                                    value={form.watch("gatewayConfig.efi.methods") || []}
+                                    onChange={(val) => form.setValue("gatewayConfig.efi.methods", val)}
+                                />
+                            </div>
+                        </IntegrationCard>
+
+                        {/* Iugu */}
+                        <IntegrationCard
+                            title="Iugu"
+                            description="Foco em recorrência e facilidade de integração."
+                            logoUrl="/icons/iugu.png"
+                            enabled={form.watch("gatewayConfig.iugu.enabled") || false}
+                            onToggle={(val) => form.setValue("gatewayConfig.iugu.enabled", val)}
+                        >
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">API Key</Label>
+                                        <Input type="password" placeholder="Live_..." className="h-11 bg-muted/20" {...form.register("gatewayConfig.iugu.apiKey")} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Account ID</Label>
+                                        <Input placeholder="Ex: 512..." className="h-11 bg-muted/20" {...form.register("gatewayConfig.iugu.accountId")} />
+                                    </div>
+                                </div>
+                                <PaymentMethodsSelect
+                                    value={form.watch("gatewayConfig.iugu.methods") || []}
+                                    onChange={(val) => form.setValue("gatewayConfig.iugu.methods", val)}
+                                />
+                            </div>
+                        </IntegrationCard>
                     </div>
+                </section>
+
+                <Separator className="bg-border" />
+
+                {/* 4. Bancos Diretos (CNAB) */}
+                <section className="space-y-8">
+                    <div className="flex items-center gap-3">
+                        <Badge variant="outline" className="rounded-lg h-8 w-8 p-0 flex items-center justify-center bg-primary/10 text-primary border-primary/20 font-black italic text-xs">04</Badge>
+                        <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground italic leading-none">Bancos Diretos (Remessa/Retorno)</h3>
+                    </div>
+
+                    <NeonCard className={form.watch("gatewayConfig.cb.enabled") ? "bg-card" : "bg-card/50"} glow={form.watch("gatewayConfig.cb.enabled")}>
+                        <NeonCardContent className="p-6 space-y-6">
+                            <div className="flex items-center justify-between">
+                                <div className="space-y-1">
+                                    <p className="text-sm font-bold text-foreground italic uppercase tracking-tighter">Habilitar Cobrança Direta</p>
+                                    <p className="text-xs text-muted-foreground">Emissão de boletos sem intermediários (exige convênio bancário).</p>
+                                </div>
+                                <Switch
+                                    checked={form.watch("gatewayConfig.cb.enabled")}
+                                    onCheckedChange={(val) => form.setValue("gatewayConfig.cb.enabled", val)}
+                                    className="data-[state=checked]:bg-primary shadow-[0_0_15px_-5px_var(--color-primary)]"
+                                />
+                            </div>
+
+                            {form.watch("gatewayConfig.cb.enabled") && (
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in slide-in-from-top-4 duration-500">
+                                    <div className="space-y-2">
+                                        <Label className="text-xs font-bold text-muted-foreground">Instituição</Label>
+                                        <select
+                                            className="w-full h-11 bg-background border border-border rounded-lg px-3 uppercase font-black text-xs italic"
+                                            {...form.register("gatewayConfig.cb.bank")}
+                                        >
+                                            <option value="BB">Banco do Brasil</option>
+                                            <option value="CAIXA">Caixa Econômica</option>
+                                            <option value="ITAU">Itaú</option>
+                                            <option value="BRADESCO">Bradesco</option>
+                                            <option value="SICOOB">Sicoob</option>
+                                            <option value="SICREDI">Sicredi</option>
+                                        </select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-xs font-bold text-muted-foreground">Agência</Label>
+                                        <Input placeholder="0001" className="h-11 bg-muted/20" {...form.register("gatewayConfig.cb.agencia")} />
+                                    </div>
+                                    <div className="space-y-2 flex gap-2">
+                                        <div className="flex-1">
+                                            <Label className="text-xs font-bold text-muted-foreground">Conta</Label>
+                                            <Input placeholder="12345" className="h-11 bg-muted/20" {...form.register("gatewayConfig.cb.conta")} />
+                                        </div>
+                                        <div className="w-16">
+                                            <Label className="text-xs font-bold text-muted-foreground">DV</Label>
+                                            <Input placeholder="0" className="h-11 bg-muted/20 text-center" {...form.register("gatewayConfig.cb.dvConta")} />
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-xs font-bold text-muted-foreground">Convênio / Código Beneficiário</Label>
+                                        <Input placeholder="Convênio 7 dígitos" className="h-11 bg-muted/20" {...form.register("gatewayConfig.cb.convenio")} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-xs font-bold text-muted-foreground">Carteira</Label>
+                                        <Input placeholder="Ex: 109, 09, 1" className="h-11 bg-muted/20" {...form.register("gatewayConfig.cb.carteira")} />
+                                    </div>
+                                </div>
+                            )}
+                        </NeonCardContent>
+                    </NeonCard>
                 </section>
             </form>
         </div>

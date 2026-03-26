@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
-import { format, addMonths, startOfMonth, endOfMonth } from "date-fns";
+import { format, addMonths, startOfMonth, endOfMonth, startOfDay, endOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { WhatsAppInstanceManager } from "../whatsapp/whatsapp.manager";
+import { WhatsAppNotificationService } from "../whatsapp/services/whatsapp-notification.service";
 
 /**
  * Serviço de Faturamento (Billing) do Provedor.
@@ -13,8 +13,6 @@ export class BillingService {
      * Deve ser executado via Job ou manualmente.
      */
     async generateMonthlyInvoices(tenantId: string) {
-        
-
         const customers = await prisma.customer.findMany({
             where: {
                 status: 'ACTIVE',
@@ -42,20 +40,26 @@ export class BillingService {
 
             if (existingInvoice) continue;
 
-            // 1. Obter Configuração Financeira e Gateway
+            // 1. Obter Configuração Financeira e Gateway do Tenant
+            const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
             const config = await prisma.financialConfig.findFirst();
             const credentials = (config?.gatewayCredentials as any) || {};
-            const asaasConfig = credentials.asaas;
 
             let gatewayId = null;
             let paymentUrl = null;
             let pixQrCode = null;
 
-            // Integrar com Asaas se habilitado
-            if (asaasConfig?.enabled && asaasConfig?.apiKey) {
-                try {
-                    const { AsaasAdapter } = await import("./gateways/asaas.adapter");
-                    const adapter = new AsaasAdapter(asaasConfig.apiKey, asaasConfig.webhookToken);
+            // Integrar com o Gateway selecionado pelo ISP ou fallback do sistema
+            const gatewayType = (tenant?.paymentGateway || "ASAAS") as any;
+            
+            try {
+                const { PaymentGatewayFactory } = await import("./gateways/payment-gateway.factory");
+                const gatewayCreds = gatewayType === "MERCADO_PAGO" 
+                    ? { accessToken: credentials.mercadoPago?.accessToken }
+                    : { apiKey: credentials.asaas?.apiKey, webhookToken: credentials.asaas?.webhookToken };
+
+                if (gatewayCreds.apiKey || gatewayCreds.accessToken) {
+                    const adapter = PaymentGatewayFactory.getGateway(gatewayType, gatewayCreds);
 
                     const charge = await adapter.createPix(
                         Number(customer.plan.price),
@@ -63,7 +67,7 @@ export class BillingService {
                         {
                             id: customer.asaasCustomerId || undefined,
                             name: customer.name,
-                            email: `${customer.cpfCnpj}@mikrogestor.com`, // Placeholder de email
+                            email: `${customer.cpfCnpj}@mikrogestor.com`,
                             document: customer.cpfCnpj,
                             phone: customer.phone || undefined
                         }
@@ -73,7 +77,6 @@ export class BillingService {
                     paymentUrl = charge.paymentUrl;
                     pixQrCode = charge.qr_code;
 
-                    // Update customer with Asaas ID if new
                     if (!customer.asaasCustomerId) {
                         const resolvedId = await adapter.getCustomerIdByDocument(customer.cpfCnpj);
                         if (resolvedId) {
@@ -83,9 +86,9 @@ export class BillingService {
                             });
                         }
                     }
-                } catch (asaasError) {
-                    console.error(`[BillingService] Falha ao gerar cobrança Asaas para ${customer.name}:`, asaasError);
                 }
+            } catch (gatewayError) {
+                console.error(`[BillingService] Falha ao gerar cobrança ${gatewayType} para ${customer.name}:`, gatewayError);
             }
 
             // 2. Cria nova fatura (Invoice)
@@ -141,32 +144,66 @@ export class BillingService {
                 }
 
                 // Atualiza o total da fatura com os ajustes aplicados
+                const finalTotal = Number(invoice.total) + adjustmentTotal;
                 await prisma.invoice.update({
                     where: { id: invoice.id },
                     data: {
-                        total: Number(invoice.total) + adjustmentTotal
+                        total: finalTotal
                     }
                 });
             }
 
             // --- Gatilho de Notificação via WhatsApp ---
             if (customer.phone) {
-                const manager = WhatsAppInstanceManager.getInstance();
-                const sock = manager.getInstance(tenantId);
-
-                if (sock) {
-                    const firstName = customer.name.split(' ')[0];
-                    const message = `Olá, *${firstName}*! 👋\n\nSua fatura de *${format(new Date(), 'MMMM', { locale: ptBR })}* já está disponível.\n\n💰 *Valor:* R$ ${Number(invoice.total).toFixed(2)}\n📅 *Vencimento:* ${format(invoice.dueDate, 'dd/MM/yyyy')}\n\nPara pagar agora via *PIX*, acesse sua Central do Assinante.\n\n_Mikrogestor - Simplificando sua Fibra_`;
-
-                    const jid = `${customer.phone.replace(/\D/g, "")}@s.whatsapp.net`;
-                    await sock.sendMessage(jid, { text: message }).catch(e => console.error("Erro WA:", e));
-                }
+                await WhatsAppNotificationService.sendNewInvoice(tenantId, {
+                    customerName: customer.name,
+                    phone: customer.phone,
+                    invoiceId: invoice.id,
+                    value: Number(invoice.total).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+                    dueDate: format(invoice.dueDate, 'dd/MM/yyyy'),
+                    pixCode: invoice.pixQrCode || undefined,
+                    bolUrl: invoice.paymentUrl || undefined
+                });
             }
 
             count++;
         }
 
         return { generated: count };
+    }
+
+    /**
+     * Processa lembretes diários para faturas que vencem hoje.
+     */
+    async processDailyReminders(tenantId: string) {
+        const today = new Date();
+        
+        const invoicesDueToday = await prisma.invoice.findMany({
+            where: {
+                status: 'OPEN',
+                dueDate: {
+                    gte: startOfDay(today),
+                    lte: endOfDay(today)
+                }
+            },
+            include: { customer: true }
+        });
+
+        let count = 0;
+        for (const invoice of invoicesDueToday) {
+            if (invoice.customer.phone) {
+                await WhatsAppNotificationService.sendDueDateReminder(tenantId, {
+                    customerName: invoice.customer.name,
+                    phone: invoice.customer.phone,
+                    value: Number(invoice.total).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+                    pixCode: invoice.pixQrCode || undefined,
+                    paymentUrl: invoice.paymentUrl || undefined
+                });
+                count++;
+            }
+        }
+
+        return { sent: count };
     }
 
     /**

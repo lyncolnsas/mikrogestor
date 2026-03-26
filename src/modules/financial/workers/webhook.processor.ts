@@ -18,9 +18,14 @@ export class WebhookProcessor {
         this.worker = new Worker('webhook-processing-queue', async (job: Job) => {
 
             const { tenantConfig, payload, provider } = job.data;
+            const creds = tenantConfig as any;
 
-            // 1. Instanciar Gateway
-            const gateway = PaymentGatewayFactory.create({ ...tenantConfig, provider });
+            // 1. Instanciar Gateway via Factory dinâmica
+            const gatewayCreds = provider === "MERCADO_PAGO"
+                ? { accessToken: creds.mercadoPago?.accessToken }
+                : { apiKey: creds.asaas?.apiKey, webhookToken: creds.asaas?.webhookToken };
+
+            const gateway = PaymentGatewayFactory.getGateway(provider, gatewayCreds);
 
             // 2. Validar Assinatura
             const headers = job.data.headers || {};

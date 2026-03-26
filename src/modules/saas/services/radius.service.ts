@@ -8,7 +8,7 @@ export class RadiusService {
     /**
      * Sincroniza um cliente completo (Senha + Limites) com o Radius.
      */
-    static async syncCustomer(tenantId: string, customer: { id: string, radiusPassword?: string | null, framedIp?: string | null, cpfCnpj?: string | null }, plan: { upload: number | string, download: number | string, remoteIpPool?: string | null }, tx?: any): Promise<void> {
+    static async syncCustomer(tenantId: string, customer: { id: string, radiusPassword?: string | null, framedIp?: string | null, cpfCnpj?: string | null, status?: string, nasId?: number | null }, plan: { upload: number | string, download: number | string, remoteIpPool?: string | null }, tx?: any): Promise<void> {
         const username = customer.cpfCnpj ? `t${tenantId}_${customer.cpfCnpj}` : `t${tenantId}_${customer.id}`;
         const rateLimit = `${plan.upload}M/${plan.download}M`;
         const db = tx || prisma;
@@ -51,19 +51,43 @@ export class RadiusService {
                 });
             }
 
-            // 4. RadReply: Framed-Pool (if any)
-            if (plan.remoteIpPool) {
-                await innerTx.radReply.deleteMany({ where: { username, attribute: 'Framed-Pool' } });
-                await innerTx.radReply.create({
-                    data: {
-                        username,
-                        attribute: 'Framed-Pool',
-                        op: '=',
-                        value: plan.remoteIpPool
-                    }
-                });
+            // 5. RadCheck: NAS-IP-Address (Isolation)
+            // Se o cliente estiver vinculado a um NAS, adicionamos a restrição no Radius
+            await innerTx.radCheck.deleteMany({ where: { username, attribute: 'NAS-IP-Address' } });
+            if (customer.nasId) {
+                const nas = await innerTx.nas.findUnique({ where: { id: customer.nasId } });
+                if (nas) {
+                    await innerTx.radCheck.create({
+                        data: {
+                            username,
+                            attribute: 'NAS-IP-Address',
+                            op: '==',
+                            value: nas.nasname
+                        }
+                    });
+                }
             }
         }, { timeout: 30000 });
+
+        // Background OOB Sync to Local MikroTik
+        try {
+            const nasFilter = customer.nasId ? { id: customer.nasId } : { tenantId };
+            const tenantNases = await (db as any).nas.findMany({ where: nasFilter });
+            if (tenantNases && tenantNases.length > 0) {
+                const { MikrotikService } = await import('@/modules/saas/services/mikrotik.service');
+                for (const nas of tenantNases) {
+                    MikrotikService.upsertSecret(nas.id, {
+                        username,
+                        password: customer.radiusPassword || '123456',
+                        planName: 'mikrogestor-profile',
+                        remoteIpPool: plan.remoteIpPool || undefined,
+                        disabled: customer.status === 'BLOCKED'
+                    }).catch(e => console.warn(`[Background OOB Sync] Nas ${nas.id} failed:`, e.message));
+                }
+            }
+        } catch (e) {
+            console.warn('[RadiusService] Failed to execute OOB sync', e);
+        }
     }
 
     /**
@@ -89,6 +113,24 @@ export class RadiusService {
                 }
             });
         }
+
+        // Background OOB toggle to Local MikroTik
+        try {
+            const tenantMatch = username.match(/^t([^_]+)_/);
+            if (tenantMatch) {
+                const tenantId = tenantMatch[1];
+                const tenantNases = await (db as any).nas.findMany({ where: { tenantId } });
+                if (tenantNases && tenantNases.length > 0) {
+                    const { MikrotikService } = await import('@/modules/saas/services/mikrotik.service');
+                    for (const nas of tenantNases) {
+                        MikrotikService.toggleSecret(nas.id, username, status === 'BLOCKED')
+                            .catch(e => console.warn(`[Background OOB Status Toggle] Nas ${nas.id} failed:`, e.message));
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('[RadiusService] Failed to execute OOB status toggle', e);
+        }
     }
 
     /**
@@ -98,6 +140,24 @@ export class RadiusService {
         const db = tx || prisma;
         await db.radCheck.deleteMany({ where: { username } });
         await db.radReply.deleteMany({ where: { username } });
+
+        // Background OOB Removal from Local MikroTik
+        try {
+            const tenantMatch = username.match(/^t([^_]+)_/);
+            if (tenantMatch) {
+                const tenantId = tenantMatch[1];
+                const tenantNases = await (db as any).nas.findMany({ where: { tenantId } });
+                if (tenantNases && tenantNases.length > 0) {
+                    const { MikrotikService } = await import('@/modules/saas/services/mikrotik.service');
+                    for (const nas of tenantNases) {
+                        MikrotikService.removeSecret(nas.id, username)
+                            .catch(e => console.warn(`[Background OOB Remove] Nas ${nas.id} failed:`, e.message));
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('[RadiusService] Failed to execute OOB remove toggle', e);
+        }
     }
 
     /**

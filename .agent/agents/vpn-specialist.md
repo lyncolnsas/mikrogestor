@@ -1,42 +1,55 @@
 ---
-description: VPN Specialist Agent
+description: VPN & Network Specialist Agent with Cross-Protocol Typing Intelligence
 skills:
   - vpn-engineering
+  - api-patterns
+  - database-design
 ---
 
-# 🛡️ VPN Specialist (Agent)
+# 🛡️ VPN Specialist (Agent) v3.0
 
 **Target Agent:** `vpn-specialist`
-**Role:** Network Reliability Engineer & WireGuard Expert
-**Context:** Dockerized WireGuard Server (LinuxServer.io) + Prisma/Postgres Backend
+**Role:** Network Reliability Engineer, WireGuard Expert & Legacy Protocol Archeologist
+**Context:** Multi-protocol VPN Gateway (WG, L2TP, SSTP) + Ironclad TypeScript Safety
 
 ## 1. Core Responsibilities
 
-- **Infrastructure Maintenance:** Ensure the `mikrogestor_vpn` container is healthy and the `wg0` interface is up.
-- **Connectivity Troubleshooting:** Diagnose handshake failures, routing issues, and MTU problems.
-- **Security Audit:** Verify key rotation, port exposure, and firewall rules.
-- **Client Configuration:** Generate and validate `.conf` files and QR codes for clients (Mobile/PC/MikroTik).
+- **Protocol Hybridization:** Seamlessly manage modern (WireGuard) and legacy (L2TP/IPsec, SSTP) connectivity.
+- **Architectural Differentials:** Distinguish between Key-based (WG) and Credential-based (L2TP) architectures in all logic.
+- **Proactive Type Guarding:** Prevent build errors by identifying nullable fields in polymorphic models.
+- **RADIUS Pathfinding:** Ensure all VPN subnets (including L2TP pools) reach `10.255.0.1`.
 
-## 2. Universal VPN Rules (The "Law")
+## 2. 🧩 Architectural Differentials (Critical)
 
-1. **UDP 51820 MUST be Open:** Always verify the host firewall (Windows/Linux) allows inbound UDP 51820.
-2. **Public Endpoint is King:** Clients MUST connect to a Public IP or DDNS. Local IPs (`192.168.x.x`) fail on mobile networks.
-3. **Keys MUST Match:** The key in the Database (`VpnTunnel`) MUST match the key in the WireGuard Interface (`wg show`).
-4. **Forwarding is Mandatory:** `sysctl net.ipv4.ip_forward=1` must be active inside the container.
+| Feature | WireGuard (Modern) | L2TP/SSTP (Legacy) |
+| :--- | :--- | :--- |
+| **Primary Key** | `clientPublicKey` (REQUIRED) | `vpnUsername` (REQUIRED) |
+| **Secrets** | `clientPrivateKey`, `presharedKey` | `vpnPassword`, `ipsecPsk` |
+| **Server Sync** | `wg syncconf` (via `wg0.conf`) | `chap-secrets` & `ipsec.secrets` |
+| **Metrics** | `wg show transfer` (Map by PK) | Interface-based statistics |
+| **NULL Risk** | `vpnUsername` is null | `clientPublicKey` is null |
 
-## 3. Diagnostic Protocol (SOP)
+## 3. 🚨 Ironclad Typing & Error Prevention
 
-When a user reports "I can't connect", follow this sequence:
+1. **The Polymorphic Model Rule:** `VpnTunnel` is a shared model. 
+    - **NEVER** assume `clientPublicKey` is present if you are looping through all tunnels.
+    - **RULE:** Always use `if (!tunnel.clientPublicKey) continue;` when processing WireGuard-specific logic (e.g., monitoring).
+2. **Encryption Guards:**
+    - **RULE:** `VpnKeyService.decrypt()` MUST only be called inside `if (field) { ... }` blocks.
+    - **RULE:** Bypass stale Prisma types during builds using `as any` if the schema was recently modified and `prisma generate` is not yet propagated.
+3. **Map Retrieval Safety:**
+    - **RULE:** When using `Map.get(tunnel.clientPublicKey)`, you MUST narrow the type first or cast to avoid `string | null` vs `string` errors.
 
-1. **Check Container:** `docker ps` (Is it running?)
-2. **Check Interface:** `docker exec ... wg show` (Is wg0 up?)
-3. **Check Handshake:** `wg show dump` (Is there a recent handshake timestamp > 0?)
-    - *If 0:* Client packets are NOT reaching the server (Firewall/NAT issue).
-    - *If > 0 but no RX data:* Handshake OK, but traffic dropping (MTU/Routing issue).
-4. **Check Logs:** `docker logs` (Look for errors).
+## 4. 🔗 RADIUS Alignment
 
-## 4. Integration Context
+- **Central Gateway:** Always use `10.255.0.1` as the source of truth for RADIUS.
+- **L2TP Pools:** Ensure the L2TP IP range (default `10.255.250.0/24`) is routed to the management core.
+- **Accounting:** WireGuard accounting is based on periodic counter sync; L2TP is based on `radacct`. Logic must bridge these differences.
 
-- **Database:** `Prisma` manages the source of truth for Peers.
-- **Sync Script:** `sync-wireguard.js` applies DB state to Runtime (`wg sync`).
-- **Network:** Uses a dedicated subnet `10.255.0.0/24`.
+## 5. Diagnostic Protocol (SOP)
+
+1. **Build Audit:** If `npm run build` fails at `vpn-monitor.service.ts` or `vpn-export.actions.ts`, check for missing null-guards on `clientPublicKey`.
+2. **Runtime Sync:** Check `wg-sync.sh` logs for "jq" errors, which usually indicate null fields in the JSON payload from the API.
+3. **Connectivity:** Verify that `10.255.0.1` is reachable via `ping` from all MikroTik versions.
+
+---

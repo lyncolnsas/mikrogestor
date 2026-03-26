@@ -3,17 +3,28 @@ import { decrypt } from "@/lib/auth/session";
 import { getSubdomain } from "@/lib/tenancy/subdomain";
 
 // 1. Definir rotas públicas e protegidas
-const publicRoutes = ["/", "/auth/login", "/auth/register", "/login", "/locked"];
+const publicRoutes = ["/", "/guia", "/auth/login", "/auth/register", "/login", "/locked", "/redirect/block", "/redirect/alert", "/auth/recuperar", "/auth/reset-password"];
 const saasAdminRoutes = ["/saas-admin"]; // Protege tudo sob /saas-admin
-const ispPanelRoutes = ["/customers", "/financial", "/network", "/overview", "/settings"];
+const ispPanelRoutes = ["/customers", "/financial", "/network", "/overview", "/settings", "/notifications"];
 const technicianRoutes = ["/jobs", "/technician"];
 
 export default async function middleware(req: NextRequest) {
+    const path = req.nextUrl.pathname;
     const host = req.headers.get("host") || "";
     const subdomain = getSubdomain(host);
-    const path = req.nextUrl.pathname;
 
-    // 2. Descriptografar a sessão do cookie
+    // 2. Bypass middleware for static uploads, Next.js assets, and common extensions
+    if (
+        path.startsWith("/uploads") || 
+        path.startsWith("/_next") || 
+        path.startsWith("/api/public") ||
+        path.startsWith("/api/uploads") || // Custom asset serving via API
+        path.includes(".")
+    ) {
+        return NextResponse.next();
+    }
+
+    // 3. Descriptografar a sessão do cookie
     const cookie = req.cookies.get("session")?.value;
     const session = cookie ? await decrypt(cookie) : null;
 
@@ -36,8 +47,8 @@ export default async function middleware(req: NextRequest) {
 
     // 7. Lógica de Redirecionamento Baseada em Papel (Traffic Controller)
     if (session) {
-        // Se logado e tentando acessar rotas públicas (exceto root), redirecionar para dashboard
-        if (isPublicRoute && path !== "/" && path !== "/locked") {
+        // Se logado e tentando acessar rotas públicas (exceto root e guia), redirecionar para dashboard
+        if (isPublicRoute && path !== "/" && path !== "/locked" && path !== "/guia") {
             return redirectToDashboard(session.role, req);
         }
 
@@ -79,5 +90,5 @@ function redirectToDashboard(role: string, req: NextRequest) {
 
 // Rotas onde o Middleware não deve executar
 export const config = {
-    matcher: ["/((?!api|_next/static|_next/image|.*\\.png$).*)"],
+    matcher: ["/((?!api|_next/static|_next/image|uploads|.*\\.png$|.*\\.jpg$|.*\\.jpeg$|.*\\.webp$|.*\\.gif$|.*\\.ico$).*)"],
 };

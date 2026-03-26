@@ -446,13 +446,22 @@ function PlanPreviewCard({ values }: { values: any }) {
                     <span className="text-slate-400 font-bold">/mês</span>
                 </div>
 
-                <div className="space-y-4">
-                    <FeatureRow label={`Até ${customers} Clientes`} included={true} />
-                    <FeatureRow label={`${vpnLimit} VPN${vpnLimit > 1 ? 's' : ''} Ativa${vpnLimit > 1 ? 's' : ''}`} included={true} highlight={true} />
-                    <FeatureRow label={`${vpn} Concentrador(es) VPN`} included={true} />
-                    <FeatureRow label="WhatsApp Automático" included={whatsapp} />
-                    <FeatureRow label="API de Integração" included={api} />
-                    <FeatureRow label="Suporte Prioritário" included={support} highlight={support} />
+                <div className="space-y-3">
+                    <FeatureRow label={`Até ${customers} Clientes`} included={true} highlight={true} />
+                    {[
+                        "Gestão completa de clientes",
+                        "Controle financeiro",
+                        "Suporte técnico",
+                        "Integração com Mikrotik",
+                        "Área do cliente",
+                        "Relatórios",
+                        "Integração com bancos",
+                        "Personalizações",
+                        "Treinamento incluído"
+                    ].map((feat) => (
+                        <FeatureRow key={feat} label={feat} included={true} />
+                    ))}
+                    <FeatureRow label={`${vpnLimit} VPN${vpnLimit > 1 ? 's' : ''} Ativa${vpnLimit > 1 ? 's' : ''}`} included={true} />
                 </div>
 
                 <div className="mt-8">

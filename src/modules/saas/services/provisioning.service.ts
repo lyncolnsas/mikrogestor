@@ -49,7 +49,7 @@ export class ProvisioningService {
 
             // 1. Initial Registration (Tenant, User, Log)
             // We use a dummy context to flag that we are inside a transaction
-            const { tenant, log } = await runWithTenant({ tenantId: 'SYSTEM', schema: 'management', isInsideTransaction: true }, async () => {
+            const { tenant, log, otp } = await runWithTenant({ tenantId: 'SYSTEM', schema: 'management', isInsideTransaction: true }, async () => {
                 return await prisma.$transaction(async (tx) => {
                     // 1. Criar Registro do Tenant (management)
 
@@ -75,17 +75,26 @@ export class ProvisioningService {
                     });
 
 
+                    let otpGenerated: string | null = null;
+
                     // Create Admin User if password provided (new account)
                     if (adminPassword) {
 
                         const hashedPassword = await hashPassword(adminPassword);
+                        const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+                        const verificationExpires = new Date(Date.now() + 30 * 60 * 1000); // 30 min
+                        otpGenerated = verificationCode;
+
                         await tx.user.create({
                             data: {
                                 email: adminEmail,
                                 password: hashedPassword,
                                 name: `${name} Admin`,
                                 role: UserRole.ISP_ADMIN,
-                                tenantId: newTenant.id
+                                tenantId: newTenant.id,
+                                emailVerified: false,
+                                verificationCode: verificationCode,
+                                verificationExpires: verificationExpires
                             }
                         });
 
@@ -102,7 +111,7 @@ export class ProvisioningService {
 
                     }
 
-                    return { tenant: newTenant, log: newLog };
+                    return { tenant: newTenant, log: newLog, otp: otpGenerated };
                 }, { timeout: 30000 }); // Increase to 30s
             });
 
@@ -194,7 +203,7 @@ export class ProvisioningService {
             }
 
 
-            return { tenant, vpnProvisioned };
+            return { tenant, vpnProvisioned, otp };
 
         } catch (error: any) {
             console.error(`[TRACING: Provisioning] DEADLY ERROR for ${slug}:`, error);

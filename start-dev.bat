@@ -50,6 +50,12 @@ if !errorlevel! neq 0 (
     exit /b 1
 )
 
+:: Sincronizar Banco de Dados
+echo.
+echo %YELLOW%[*] Sincronizando banco de dados (Prisma)...%RESET%
+docker compose exec -T app npx prisma db push --accept-data-loss
+
+
 :: 4. Status
 echo.
 echo %YELLOW%[4/4] Verificando status...%RESET%

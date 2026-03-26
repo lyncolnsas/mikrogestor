@@ -8,6 +8,7 @@ import { z } from "zod";
 import { ProvisioningService } from "@/modules/saas/services/provisioning.service";
 import { redirect } from "next/navigation";
 import { createSession, deleteSession, getSession } from "@/lib/auth/session";
+import { headers } from "next/headers";
 
 const registerSchema = z.object({
     name: z.string().min(3, "O nome deve ter pelo menos 3 caracteres"),
@@ -55,7 +56,7 @@ export async function registerUser(prevState: unknown, formData: FormData) {
 
         try {
             // Use ProvisioningService for consistent flow
-            await ProvisioningService.provision({
+            const result = await ProvisioningService.provision({
                 name: `Empresa de ${name}`,
                 slug: slug,
                 adminEmail: email,
@@ -69,6 +70,12 @@ export async function registerUser(prevState: unknown, formData: FormData) {
                     autoUnblock: true,
                 }
             });
+
+            // ENVIAR E-MAIL DE VERIFICAÇÃO SE GERADO
+            if (result.otp) {
+                const { sendVerificationEmail } = await import("@/lib/mail");
+                await sendVerificationEmail(email, result.otp);
+            }
 
         } catch (error) {
             console.error("Erro no registro/provisionamento:", error);
@@ -123,6 +130,11 @@ export async function loginUser(prevState: unknown, formData: FormData) {
             return { error: { _form: ["Credenciais inválidas."] } };
         }
 
+        // --- VERIFICAÇÃO DE PRIMEIRO ACESSO (OTP) ---
+        if (!user.emailVerified) {
+            return { needsVerification: true, email: email };
+        }
+
         const role = user.role;
         const tenantStatus = user.tenant?.status;
         const tenantSlug = user.tenant?.slug;
@@ -138,7 +150,32 @@ export async function loginUser(prevState: unknown, formData: FormData) {
             tenantStatus: tenantStatus
         });
 
-        
+        // Register Security Log
+        try {
+            const headersList = await headers();
+            const ip = headersList.get("x-forwarded-for")?.split(',')[0] || "127.0.0.1";
+            const ua = headersList.get("user-agent") || "Unknown";
+            
+            // Simple Device Parsing
+            let device = "Desktop";
+            if (/iPhone|iPad|iPod/i.test(ua)) device = "iPhone/iPad";
+            else if (/Android/i.test(ua)) device = "Android";
+            else if (/Windows/i.test(ua)) device = "Windows PC";
+            else if (/Macintosh/i.test(ua)) device = "MacBook";
+
+            await prisma.userSecurityLog.create({
+                data: {
+                    userId: user.id,
+                    event: "LOGIN",
+                    ipAddress: ip,
+                    userAgent: ua,
+                    device: device,
+                    location: "Brasil" // In priority/future: GeoIP integration
+                }
+            });
+        } catch (e) {
+            console.error("[LoginLog] Failed to create security log:", e);
+        }
 
         if (role === "SUPER_ADMIN") {
             redirect("/saas-admin/tower");
@@ -162,14 +199,7 @@ export async function loginUser(prevState: unknown, formData: FormData) {
  * Encerra a sessão do usuário.
  */
 export async function logoutUser() {
-    const session = await getSession();
-    const tenantSlug = session?.tenantSlug;
     await deleteSession();
-
-    if (tenantSlug) {
-        redirect(`/p/${tenantSlug}`);
-    }
-
     redirect("/");
 }
 const forgotPasswordSchema = z.object({
@@ -214,5 +244,90 @@ export async function forgotPassword(prevState: unknown, formData: FormData) {
     } catch (error) {
         console.error("[ForgotPassword] Erro:", error);
         return { error: { _form: ["Erro ao processar solicitação. Tente novamente."] } };
+    }
+}
+
+/**
+ * Valida o código OTP e libera o acesso do usuário.
+ */
+export async function verifyEmailAction(email: string, code: string) {
+    try {
+        const user = await prisma.user.findFirst({
+            where: { 
+                email: email.toLowerCase(),
+                verificationCode: code
+            }
+        });
+
+        if (!user) {
+            return { error: "Código inválido ou incorreto." };
+        }
+
+        if (user.verificationExpires && new Date() > user.verificationExpires) {
+            return { error: "Este código expirou. Solicite um novo." };
+        }
+
+        // Libera o usuário
+        await prisma.user.update({
+            where: { id: user.id },
+            data: {
+                emailVerified: true,
+                verificationCode: null,
+                verificationExpires: null
+            }
+        });
+
+        // Login automático após verificação
+        const tenant = await prisma.tenant.findUnique({ where: { id: user.tenantId || "" } });
+
+        await createSession({
+            userId: user.id,
+            email: user.email,
+            role: user.role,
+            tenantId: user.tenantId || undefined,
+            tenantSlug: tenant?.slug,
+            tenantStatus: tenant?.status
+        });
+
+        return { success: true, role: user.role };
+
+    } catch (error) {
+        console.error("[VerifyEmail] Erro:", error);
+        return { error: "Falha na verificação. Tente novamente." };
+    }
+}
+
+/**
+ * Reenvia um novo código OTP para o e-mail do usuário.
+ */
+export async function resendVerificationCodeAction(email: string) {
+    try {
+        const user = await prisma.user.findUnique({
+            where: { email: email.toLowerCase() }
+        });
+
+        if (!user || user.emailVerified) {
+            return { error: "Solicitação inválida." };
+        }
+
+        const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const newExpires = new Date(Date.now() + 30 * 60 * 1000); // 30 min
+
+        await prisma.user.update({
+            where: { id: user.id },
+            data: {
+                verificationCode: newCode,
+                verificationExpires: newExpires
+            }
+        });
+
+        const { sendVerificationEmail } = await import("@/lib/mail");
+        await sendVerificationEmail(user.email, newCode);
+
+        return { success: true };
+
+    } catch (error) {
+        console.error("[ResendOTP] Erro:", error);
+        return { error: "Erro ao reenviar código." };
     }
 }

@@ -28,15 +28,24 @@ async function main() {
     const tunnels = await prisma.vpnTunnel.findMany({
         where: { isActive: true },
         include: { server: true }
-    });
+    }) as any[];
 
     console.log(`\nAudit of all active tunnels (${tunnels.length}):`);
     for (const tunnel of tunnels) {
         let status = "OK";
-        try {
-            VpnKeyService.decrypt(tunnel.clientPrivateKey);
-        } catch (e: any) {
-            status = `DECRYPT_FAILED (${e.message})`;
+        if (tunnel.protocol === "WIREGUARD") {
+            try {
+                if (tunnel.clientPrivateKey) {
+                    VpnKeyService.decrypt(tunnel.clientPrivateKey);
+                } else {
+                    status = "MISSING_KEY";
+                }
+            } catch (e: any) {
+                status = `DECRYPT_FAILED (${e.message})`;
+            }
+        } else {
+            status = `PROTOCOL_${tunnel.protocol}`;
+            if (!tunnel.vpnUsername) status += " (NO_USER)";
         }
 
         console.log(`- [${status}] Tunnel ${tunnel.id} - ${tunnel.name} (IP: ${tunnel.internalIp})`);

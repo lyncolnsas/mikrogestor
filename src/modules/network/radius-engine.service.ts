@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getTenantContext } from "@/shared/tenancy/tenancy.context";
 
 /**
  * Serviço responsável pela integração com o Motor de Radius (FreeRADIUS)
@@ -93,21 +94,42 @@ export class RadiusEngineService {
 
         let blockedCount = 0;
         const processedUsers = new Set<string>();
+        
+        const context = getTenantContext();
+        const tenantId = context?.tenantId || "system";
+        const tenantSlug = context?.schema?.replace("tenant_", "") || "portal";
 
         for (const invoice of overdueInvoices) {
-            // Assume que o username é o CPF/CNPJ (Padrão inicial do sistema)
-            const username = invoice.customer.cpfCnpj;
+            // Convenção de Username: t{tenantId}_{cpfCnpj}
+            const username = invoice.customer.cpfCnpj || invoice.customer.id;
 
-            // Evita duplicidade de bloqueio para o mesmo usuário com múltiplas faturas
             if (processedUsers.has(username)) continue;
 
-            await this.blockSubscriber(username);
+            const { RadiusService } = await import("../saas/services/radius.service");
+            
+            // 1. Bloqueia no Radius via Address-List
+            await RadiusService.syncStatus(username, 'BLOCKED');
 
-            // Atualiza o status do cliente localmente para BLOQUEADO
-            await prisma.customer.update({
+            // 2. Atualiza o status do cliente localmente
+            const customer = await prisma.customer.update({
                 where: { id: invoice.customer.id },
                 data: { status: 'BLOCKED' }
             });
+
+            // 3. Notificação via WhatsApp (Suspense Alert)
+            if (customer.phone) {
+                try {
+                    const { WhatsAppNotificationService } = await import("../whatsapp/services/whatsapp-notification.service");
+                    await WhatsAppNotificationService.sendSuspensionAlert(tenantId, {
+                        customerName: customer.name || "Cliente",
+                        phone: customer.phone,
+                        bolUrl: `https://${tenantSlug}.mikrogestor.com.br/portal/invoice/${invoice.id}/print`,
+                        pixCode: "00020126580014BR.GOV.BCB.PIX0136976fd932-..." // Mock ou buscar da fatura
+                    });
+                } catch (waError) {
+                    console.error(`[RadiusEngine] Erro ao notificar suspensão WA para ${customer.id}:`, waError);
+                }
+            }
 
             processedUsers.add(username);
             blockedCount++;

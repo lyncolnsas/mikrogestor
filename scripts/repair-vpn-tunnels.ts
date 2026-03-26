@@ -19,7 +19,7 @@ const prisma = new PrismaClient({
     }
 });
 
-function isCorrupted(key: string): boolean {
+function isCorrupted(key: string | null | undefined): boolean {
     if (!key) return true;
     // Standard WireGuard public key is 44 characters (Base64)
     if (key.length !== 44) return true;
@@ -47,7 +47,7 @@ async function repair() {
 
     // We use raw query or findMany depends on tenancy, but VpnTunnel is shared
     const tunnels = await prisma.vpnTunnel.findMany({
-        where: { isActive: true }
+        where: { protocol: "WIREGUARD", isActive: true } as any
     });
 
     console.log(`📊 Found ${tunnels.length} active tunnels.`);

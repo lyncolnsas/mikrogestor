@@ -88,7 +88,12 @@ async function seed() {
                         cpfCnpj: Math.random().toString().slice(2, 13), // Fake CPF
                         status: CustomerStatus.ACTIVE,
                         planId: plan.id,
-                        address: { city: "São Paulo", street: "Rua Teste", number: "123" }
+                        city: "São Paulo",
+                        street: "Rua Teste",
+                        number: "123",
+                        neighborhood: "Centro",
+                        zipCode: "01000-000",
+                        state: "SP"
                     }
                 });
                 customers.push(customer);
