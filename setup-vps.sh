@@ -8,15 +8,28 @@ set -e
 
 echo "🚀 Iniciando Implantação Automatizada do Mikrogestor Network..."
 
-# 1. Solicitar Informações Críticas
+# 1. Solicitar Informações Críticas (ou usar argumentos se fornecidos)
 echo "--------------------------------------------------------"
-read -p "🌐 Digite o seu DOMÍNIO (ex: painel.meuprovedor.com.br): " DOMAIN
+DOMAIN=$1
+EMAIL=$2
+
 if [ -z "$DOMAIN" ]; then
-    echo "❌ Erro: O domínio é obrigatório para a configuração de rede e SSL."
+    read -p "🌐 Digite o seu DOMÍNIO (ex: painel.meuprovedor.com.br): " DOMAIN
+fi
+
+if [ -z "$DOMAIN" ]; then
+    echo "❌ Erro: O domínio ou IP é obrigatório para a configuração de rede."
     exit 1
 fi
 
-read -p "📧 Digite o seu E-MAIL para SSL (Let's Encrypt): " EMAIL
+if [ -z "$EMAIL" ]; then
+    if [ ! -t 0 ]; then
+        EMAIL="admin@$DOMAIN" # Não-interativo: usar padrão
+    else
+        read -p "📧 Digite o seu E-MAIL para SSL (Let's Encrypt): " EMAIL
+    fi
+fi
+
 if [ -z "$EMAIL" ]; then
     EMAIL="admin@$DOMAIN"
     echo "ℹ️  Usando e-mail padrão: $EMAIL"
@@ -89,8 +102,13 @@ rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl reload nginx
 
 # 7. Configurar Let's Encrypt (SSL Grátis)
-echo "🔐 Solicitando Certificado SSL Let's Encrypt..."
-certbot --nginx -d $DOMAIN --non-interactive --agree-tos --email $EMAIL --redirect
+if [[ $DOMAIN =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "⚠️  AVISO: O SSL (Let's Encrypt) não pode ser gerado para endereços IP ($DOMAIN)."
+    echo "Sugestão: Aponte um domínio (ex: painel.meuprovedor.com) para este IP."
+else
+    echo "🔐 Solicitando Certificado SSL Let's Encrypt para $DOMAIN..."
+    certbot --nginx -d $DOMAIN --non-interactive --agree-tos --email $EMAIL --redirect
+fi
 
 # 8. Subir Infraestrutura Docker
 echo "🏗️  Construindo Containers (Docker Compose)..."
