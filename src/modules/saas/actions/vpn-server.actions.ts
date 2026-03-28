@@ -98,7 +98,7 @@ export const regenerateVpnServerKeysAction = protectedAction(
             where: { id },
             data: {
                 publicKey: keys.publicKey,
-                privateKey: keys.privateKey,
+                serverPrivateKey: keys.privateKey,
             } as any
         });
 
