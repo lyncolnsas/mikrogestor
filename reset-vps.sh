@@ -36,15 +36,17 @@ rm -rf /opt/mikrogestor
 rm -rf ~/mikrogestor*
 rm -rf /etc/wireguard
 
-echo "🧹 [3/5] Desinstalando protocolos de rede (L2TP/IPSec)..."
+echo "🧹 [3/5] Desinstalando TODOS os pacotes, VPN, Docker e Nginx (Limpeza Extrema)..."
 apt-get purge -y xl2tpd strongswan libcharon-extra-plugins 2>/dev/null || true
+apt-get purge -y docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc nginx certbot python3-certbot-nginx 2>/dev/null || true
+apt-get autoremove --purge -y
+apt-get clean
 rm -rf /etc/ipsec.* /etc/ppp/* /etc/xl2tpd/xl2tpd.conf 2>/dev/null || true
 
-echo "🌐 [4/5] Limpando Proxy Reverso e Entradas Antigas Nginx..."
-rm -f /etc/nginx/sites-enabled/mikrogestor 2>/dev/null || true
-rm -f /etc/nginx/sites-available/mikrogestor 2>/dev/null || true
-rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
-systemctl restart nginx 2>/dev/null || true
+echo "🌐 [4/5] Limpando Rastros de Sistema e Certificados SSL..."
+rm -rf /etc/nginx /etc/letsencrypt /var/lib/docker /var/lib/containerd /var/log/nginx /var/log/letsencrypt 2>/dev/null || true
+systemctl daemon-reload
+
 
 set +x
 
