@@ -8,7 +8,7 @@ echo "⚠️  ATENÇÃO: Este script vai APAGAR COMPLETAMENTE todas as configura
 echo "Isso inclui todas as senhas, registros de clientes e conexões."
 read -p "Você tem CERTEZA absoluta? Digite 'SIM' para continuar: " CONFIRM
 
-if [ "$CONFIRM" != "SIM" ]; then
+if [ "$CONFIRM" != "SIM" ] && [ "$CONFIRM" != "sim" ]; then
     echo "❌ Operação cancelada pelo usuário. Nada foi alterado."
     exit 0
 fi
