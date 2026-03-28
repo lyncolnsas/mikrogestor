@@ -90,13 +90,15 @@ async function main() {
         where: { email: 'admin@mikrogestor.com' },
         update: {
             password: hashedPassword,
-            role: 'SUPER_ADMIN'
+            role: 'SUPER_ADMIN',
+            emailVerified: new Date()
         },
         create: {
             email: 'admin@mikrogestor.com',
             name: 'Super Admin',
             password: hashedPassword,
-            role: 'SUPER_ADMIN'
+            role: 'SUPER_ADMIN',
+            emailVerified: new Date()
         }
     });
     console.log(`Super Admin created: ${adminUser.email} / admin`);
