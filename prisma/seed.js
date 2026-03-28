@@ -91,14 +91,14 @@ async function main() {
         update: {
             password: hashedPassword,
             role: 'SUPER_ADMIN',
-            emailVerified: new Date()
+            emailVerified: true
         },
         create: {
             email: 'admin@mikrogestor.com',
             name: 'Super Admin',
             password: hashedPassword,
             role: 'SUPER_ADMIN',
-            emailVerified: new Date()
+            emailVerified: true
         }
     });
     console.log(`Super Admin created: ${adminUser.email} / admin`);
