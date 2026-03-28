@@ -22,6 +22,7 @@ services:
       - "/dev/net/tun:/dev/net/tun"
     sysctls:
       - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv4.ip_forward=1
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}?schema=management&search_path=management,tenant_template,radius
@@ -34,13 +35,17 @@ services:
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
+      - APP_SECRET=${APP_SECRET}
+      - ASAAS_MASTER_API_KEY=${ASAAS_MASTER_API_KEY}
+      - ASAAS_MASTER_WEBHOOK_TOKEN=${ASAAS_MASTER_WEBHOOK_TOKEN}
       - VPN_AUTO_REGISTER=true
       - VPN_SERVER_ID=default-ca-sync-01
-      - VPN_SERVER_SECRET=ca-dev-secret-2025
+      - VPN_SERVER_SECRET=${VPN_SERVER_SECRET}
       - VPN_PUBLIC_ENDPOINT=${VPN_HOST:-auto}
       - APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
     volumes:
       - ./config/wireguard:/etc/wireguard
+      - /etc/ppp:/host-ppp
     depends_on:
       db:
         condition: service_healthy

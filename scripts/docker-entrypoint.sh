@@ -81,12 +81,25 @@ if [ "$VPN_AUTO_REGISTER" = "true" ]; then
     echo "✅ Chaves WireGuard sanitizadas e prontas."
     
     # IP Detection Strategy
-    # ... (no changes to lines 64-150)
+    if [ "$VPN_PUBLIC_ENDPOINT" = "auto" ] || [ -z "$VPN_PUBLIC_ENDPOINT" ] || [ "$VPN_PUBLIC_ENDPOINT" = "192.168.18.9" ]; then
+        echo "🔍 Detectando IP público automaticamente para WireGuard..."
+        DETECTED_IP=$(curl -s https://api.ipify.org || wget -qO- https://api.ipify.org || curl -s https://ifconfig.me)
+        if [ -n "$DETECTED_IP" ]; then
+            export VPN_PUBLIC_ENDPOINT="$DETECTED_IP"
+            echo "✅ IP Público detectado: $VPN_PUBLIC_ENDPOINT"
+        else
+            export VPN_PUBLIC_ENDPOINT=$(ip -4 route get 8.8.8.8 | awk '{print $7}' | head -n 1)
+            echo "⚠️ Falha na API externa. Usando IP da interface roteável: $VPN_PUBLIC_ENDPOINT"
+        fi
+    fi
     
     # 4.1 Initialize WireGuard Interface
     if ! ip link show wg0 > /dev/null 2>&1; then
         echo "🔧 [STEP 4.1] Criando interface wg0..."
-        ip link add dev wg0 type wireguard || echo "⚠️ Erro ao criar link wg0 (falta de suporte ao kernel no host?)"
+        ip link add dev wg0 type wireguard || {
+            echo "⚠️ Falta de suporte ao kernel WireGuard host. Inciando fallback wireguard-go..."
+            wireguard-go wg0 || echo "🚨 Erro Crítico: wireguard-go (user-space) também falhou."
+        }
         ip address add 10.255.0.1/24 dev wg0 || echo "⚠️ Erro ao adicionar IP à wg0"
         # Use filename directly but we already cleaned it
         wg set wg0 listen-port 51820 private-key $WG_DIR/private.key || echo "⚠️ Erro ao configurar chaves na wg0"

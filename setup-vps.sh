@@ -14,7 +14,15 @@ DOMAIN=$1
 EMAIL=$2
 
 if [ -z "$DOMAIN" ]; then
-    read -p "🌐 Digite o seu DOMÍNIO (ex: painel.meuprovedor.com.br): " DOMAIN
+    if [ ! -t 0 ]; then
+        DOMAIN=$(curl -s https://api.ipify.org || wget -qO- https://api.ipify.org)
+    else
+        read -p "🌐 Digite o seu DOMÍNIO (ex: painel.meuprovedor.com.br) ou ENTER para usar IP Automático: " DOMAIN
+        if [ -z "$DOMAIN" ]; then
+            DOMAIN=$(curl -s https://api.ipify.org || wget -qO- https://api.ipify.org)
+            echo "ℹ️ Auto-detectado IP Público: $DOMAIN"
+        fi
+    fi
 fi
 
 if [ -z "$DOMAIN" ]; then
@@ -51,8 +59,13 @@ sudo ufw allow 1813/udp
 sudo ufw allow 51820/udp
 echo "y" | sudo ufw enable
 
-# 4. Clonar Repositório
-if [ ! -d "mikrogestor" ]; then
+# 4. Clonar ou Extrair Repositório
+if [ -f "mikrogestor.tar.gz" ]; then
+    echo "📦 Extraindo código fonte pré-carregado..."
+    mkdir -p mikrogestor
+    tar -xzf mikrogestor.tar.gz -C mikrogestor
+    cd mikrogestor
+elif [ ! -d "mikrogestor" ]; then
     echo "📂 Clonando repositório do GitHub..."
     git clone https://github.com/lyncolnsas/mikrogestor.git
     cd mikrogestor
@@ -69,7 +82,11 @@ fi
 
 # Gerar Segredos e Atualizar URLs
 SECRET=$(openssl rand -base64 32)
+APP_SECRET_GEN=$(openssl rand -base64 32)
+VPN_SECRET_GEN=$(openssl rand -hex 16)
 sed -i "s|NEXTAUTH_SECRET=.*|NEXTAUTH_SECRET=$SECRET|g" .env
+sed -i "s|APP_SECRET=.*|APP_SECRET=$APP_SECRET_GEN|g" .env
+sed -i "s|VPN_SERVER_SECRET=.*|VPN_SERVER_SECRET=$VPN_SECRET_GEN|g" .env
 sed -i "s|NEXTAUTH_URL=.*|NEXTAUTH_URL=https://$DOMAIN|g" .env
 sed -i "s|NEXT_PUBLIC_APP_URL=.*|NEXT_PUBLIC_APP_URL=https://$DOMAIN|g" .env
 sed -i "s|NODE_ENV=.*|NODE_ENV=production|g" .env

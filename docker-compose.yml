@@ -65,14 +65,19 @@ services:
       - "0.0.0.0:51820:51820/udp"  # Bind explícito em todas as interfaces
     volumes:
       - ./docker/wireguard:/etc/wireguard
+      - /etc/ppp:/host-ppp
       - ./storage:/app/storage
       - ./public/uploads:/app/public/uploads
       - ./scripts/docker-entrypoint.sh:/entrypoint-override.sh
     entrypoint: ["/bin/sh", "/entrypoint-override.sh"]
     cap_add:
       - NET_ADMIN
+      - SYS_MODULE
     devices:
       - "/dev/net/tun:/dev/net/tun"
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
     depends_on:
       db:
         condition: service_healthy
